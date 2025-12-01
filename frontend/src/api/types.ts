@@ -114,6 +114,24 @@ export interface VelocityAnalytics {
   }[];
 }
 
+export interface DailyPerformanceAnalytics {
+  daily: {
+    date: string;
+    revenue: number;
+    units: number;
+    retailRevenue: number;
+    beltRevenue: number;
+  }[];
+  channelMix: {
+    retailRevenue: number;
+    beltRevenue: number;
+  };
+  summary: {
+    totalRevenue: number;
+    totalUnits: number;
+  };
+}
+
 export interface SettingsPayload {
   defaultBeltMarkupRupees?: number;
   defaultLowStockThreshold?: number;

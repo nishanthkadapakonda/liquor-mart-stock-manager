@@ -99,7 +99,10 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
       throw new Error("Purchase not found");
     }
 
+    const affectedItemIds = new Set<number>();
+
     for (const line of existing.lineItems) {
+      affectedItemIds.add(line.itemId);
       await tx.item.update({
         where: { id: line.itemId },
         data: {
@@ -123,6 +126,7 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
     const priceUpdateCache = new Map<number, boolean>();
     for (const line of input.lineItems) {
       const itemId = await resolveItem(tx, line, input.allowItemCreation ?? true);
+      affectedItemIds.add(itemId);
       const shouldUpdatePricing =
         priceUpdateCache.get(itemId) ??
         (await shouldUpdateItemPricing(tx, itemId, purchaseDateValue));
@@ -152,6 +156,8 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
       totalQuantity += line.quantityUnits;
     }
 
+    await refreshItemInventoryStats(tx, Array.from(affectedItemIds));
+
     return {
       purchase,
       totals: {
@@ -173,6 +179,8 @@ export async function deletePurchase(purchaseId: number) {
       throw new Error("Purchase not found");
     }
 
+    const affectedItemIds = existing.lineItems.map((line) => line.itemId);
+
     for (const line of existing.lineItems) {
       await tx.item.update({
         where: { id: line.itemId },
@@ -183,7 +191,58 @@ export async function deletePurchase(purchaseId: number) {
     }
 
     await tx.purchase.delete({ where: { id: purchaseId } });
+    await refreshItemInventoryStats(tx, affectedItemIds);
   });
+}
+
+async function refreshItemInventoryStats(tx: Prisma.TransactionClient, itemIds: number[]) {
+  const uniqueIds = Array.from(new Set(itemIds));
+  if (uniqueIds.length === 0) {
+    return;
+  }
+
+  for (const itemId of uniqueIds) {
+    const [purchaseSum, salesSum, adjustmentsSum, latestPurchaseLine] = await Promise.all([
+      tx.purchaseLineItem.aggregate({
+        where: { itemId },
+        _sum: { quantityUnits: true },
+      }),
+      tx.dayEndReportLine.aggregate({
+        where: { itemId },
+        _sum: { quantitySoldUnits: true },
+      }),
+      tx.stockAdjustment.aggregate({
+        where: { itemId },
+        _sum: { adjustmentUnits: true },
+      }),
+      tx.purchaseLineItem.findFirst({
+        where: { itemId },
+        include: { purchase: true },
+        orderBy: { purchase: { purchaseDate: "desc" } },
+      }),
+    ]);
+
+    const purchaseTotal = Number(purchaseSum._sum.quantityUnits ?? 0);
+    const salesTotal = Number(salesSum._sum.quantitySoldUnits ?? 0);
+    const adjustmentsTotal = Number(adjustmentsSum._sum.adjustmentUnits ?? 0);
+    const currentStock = purchaseTotal - salesTotal + adjustmentsTotal;
+
+    const itemUpdateData: Prisma.ItemUpdateInput = {
+      currentStockUnits: currentStock,
+    };
+
+    if (latestPurchaseLine) {
+      itemUpdateData.purchaseCostPrice = latestPurchaseLine.unitCostPrice;
+      if (latestPurchaseLine.mrpPriceAtPurchase !== null && latestPurchaseLine.mrpPriceAtPurchase !== undefined) {
+        itemUpdateData.mrpPrice = latestPurchaseLine.mrpPriceAtPurchase;
+      }
+    }
+
+    await tx.item.update({
+      where: { id: itemId },
+      data: itemUpdateData,
+    });
+  }
 }
 
 async function resolveItem(
