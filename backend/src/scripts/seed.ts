@@ -2,7 +2,9 @@ import dayjs from "dayjs";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { ensureBootstrapData } from "../services/bootstrapService";
-import { SalesChannel } from "../types/domain";
+import type { SalesChannel } from "../types/domain";
+
+type SeededItem = Awaited<ReturnType<typeof prisma.item.upsert>>;
 
 async function main() {
   await ensureBootstrapData();
@@ -43,7 +45,7 @@ async function main() {
     },
   ];
 
-  const items = [];
+  const items: SeededItem[] = [];
   for (const seed of itemSeeds) {
     const item = await prisma.item.upsert({
       where: { sku: seed.sku },
@@ -97,21 +99,30 @@ async function main() {
   });
 
   if (!existingReport) {
+    const [whisky, vodka, rum] = items;
+    if (!whisky || !vodka || !rum) {
+      throw new Error("Items failed to seed correctly");
+    }
+
     const beltMarkup = 20;
-    const lines = [
+    const lines: Array<{
+      itemId: number;
+      channel: SalesChannel;
+      quantitySoldUnits: number;
+    }> = [
       {
-        itemId: items[0].id,
-        channel: SalesChannel.RETAIL,
+        itemId: whisky.id,
+        channel: "RETAIL",
         quantitySoldUnits: 10,
       },
       {
-        itemId: items[1].id,
-        channel: SalesChannel.BELT,
+        itemId: vodka.id,
+        channel: "BELT",
         quantitySoldUnits: 8,
       },
       {
-        itemId: items[2].id,
-        channel: SalesChannel.RETAIL,
+        itemId: rum.id,
+        channel: "RETAIL",
         quantitySoldUnits: 5,
       },
     ];
@@ -125,8 +136,7 @@ async function main() {
           create: lines.map((line) => {
             const item = items.find((i) => i.id === line.itemId)!;
             const mrpPrice = Number(item.mrpPrice);
-            const sellingPrice =
-              line.channel === SalesChannel.RETAIL ? mrpPrice : mrpPrice + beltMarkup;
+            const sellingPrice = line.channel === "RETAIL" ? mrpPrice : mrpPrice + beltMarkup;
             return {
               itemId: line.itemId,
               channel: line.channel,
