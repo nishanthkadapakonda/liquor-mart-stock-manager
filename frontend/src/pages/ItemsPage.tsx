@@ -5,18 +5,22 @@ import { api, getErrorMessage } from "../api/client";
 import type { Item } from "../api/types";
 import { formatNumber } from "../utils/formatters";
 
+const emptyItemForm = {
+  sku: "",
+  name: "",
+  brand: "",
+  category: "",
+  volumeMl: "",
+  mrpPrice: "",
+  purchaseCostPrice: "",
+  reorderLevel: "",
+};
+
 export function ItemsPage() {
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState({
-    sku: "",
-    name: "",
-    brand: "",
-    category: "",
-    volumeMl: "",
-    mrpPrice: "",
-    purchaseCostPrice: "",
-    reorderLevel: "",
-  });
+  const [form, setForm] = useState(() => ({ ...emptyItemForm }));
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
+  const isEditing = Boolean(editingItem);
 
   const itemsQuery = useQuery({
     queryKey: ["items"],
@@ -46,10 +50,20 @@ export function ItemsPage() {
     );
   }, [itemsQuery.data, search]);
 
+  const visibleItems = useMemo(
+    () => filteredItems.filter((item) => item.isActive !== false),
+    [filteredItems],
+  );
+
+  const resetForm = () => {
+    setForm({ ...emptyItemForm });
+    setEditingItem(null);
+  };
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      await api.post("/items", {
+      const payload = {
         sku: form.sku,
         name: form.name,
         brand: form.brand || undefined,
@@ -58,20 +72,58 @@ export function ItemsPage() {
         mrpPrice: Number(form.mrpPrice),
         purchaseCostPrice: form.purchaseCostPrice ? Number(form.purchaseCostPrice) : undefined,
         reorderLevel: form.reorderLevel ? Number(form.reorderLevel) : undefined,
-        currentStockUnits: 0,
-        isActive: true,
-      });
-      toast.success("Item added");
-      setForm({
-        sku: "",
-        name: "",
-        brand: "",
-        category: "",
-        volumeMl: "",
-        mrpPrice: "",
-        purchaseCostPrice: "",
-        reorderLevel: "",
-      });
+      };
+
+      if (isEditing && editingItem) {
+        await api.put(`/items/${editingItem.id}`, payload);
+        toast.success("Item updated");
+      } else {
+        await api.post("/items", {
+          ...payload,
+          currentStockUnits: 0,
+          isActive: true,
+        });
+        toast.success("Item added");
+      }
+
+      resetForm();
+      itemsQuery.refetch();
+      lowStockQuery.refetch();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const handleEdit = (item: Item) => {
+    setEditingItem(item);
+    setForm({
+      sku: item.sku ?? "",
+      name: item.name ?? "",
+      brand: item.brand ?? "",
+      category: item.category ?? "",
+      volumeMl: item.volumeMl !== null && item.volumeMl !== undefined ? String(item.volumeMl) : "",
+      mrpPrice: item.mrpPrice !== null && item.mrpPrice !== undefined ? String(item.mrpPrice) : "",
+      purchaseCostPrice:
+        item.purchaseCostPrice !== null && item.purchaseCostPrice !== undefined
+          ? String(item.purchaseCostPrice)
+          : "",
+      reorderLevel:
+        item.reorderLevel !== null && item.reorderLevel !== undefined
+          ? String(item.reorderLevel)
+          : "",
+    });
+  };
+
+  const handleDelete = async (item: Item) => {
+    if (!window.confirm(`Delete ${item.name}? This will archive the item.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/items/${item.id}`);
+      toast.success("Item deleted");
+      if (editingItem?.id === item.id) {
+        resetForm();
+      }
       itemsQuery.refetch();
       lowStockQuery.refetch();
     } catch (error) {
@@ -100,7 +152,23 @@ export function ItemsPage() {
           onSubmit={handleSubmit}
           className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-1"
         >
-          <p className="text-base font-semibold text-slate-900">Create / Import Item</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-base font-semibold text-slate-900">
+              {isEditing ? "Edit item" : "Create / Import Item"}
+            </p>
+            {isEditing && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+              >
+                Cancel edit
+              </button>
+            )}
+          </div>
+          {isEditing && editingItem && (
+            <p className="mt-1 text-xs text-slate-500">Updating SKU {editingItem.sku}</p>
+          )}
           <div className="mt-4 space-y-4 text-sm">
             {Object.entries({
               sku: "SKU",
@@ -133,7 +201,7 @@ export function ItemsPage() {
             type="submit"
             className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500"
           >
-            Save Item
+            {isEditing ? "Update item" : "Save item"}
           </button>
           <p className="mt-2 text-xs text-slate-400">
             Creating a purchase will increase stock automatically.
@@ -143,6 +211,9 @@ export function ItemsPage() {
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
           <div className="flex items-center justify-between">
             <p className="text-base font-semibold text-slate-900">Catalog ({filteredItems.length})</p>
+            <p className="text-xs text-slate-500">
+              Showing {visibleItems.length} active item{visibleItems.length === 1 ? "" : "s"}
+            </p>
             <button
               type="button"
               onClick={() => itemsQuery.refetch()}
@@ -160,10 +231,11 @@ export function ItemsPage() {
                   <th className="py-2">MRP</th>
                   <th className="py-2">Stock</th>
                   <th className="py-2">Reorder</th>
+                  <th className="py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredItems.map((item) => (
+                {visibleItems.map((item) => (
                   <tr key={item.id} className="align-top">
                     <td className="py-3">
                       <p className="font-semibold text-slate-900">{item.name}</p>
@@ -177,11 +249,28 @@ export function ItemsPage() {
                     <td className="py-3 text-slate-600">
                       {item.reorderLevel ?? lowStockQuery.data?.threshold ?? 10}
                     </td>
+                    <td className="py-3 text-right text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(item)}
+                        className="font-semibold text-brand-600 hover:underline"
+                      >
+                        Edit
+                      </button>
+                      <span className="px-1 text-slate-300">|</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(item)}
+                        className="font-semibold text-red-500 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
-                {filteredItems.length === 0 && (
+                {visibleItems.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-6 text-center text-slate-500">
+                    <td colSpan={6} className="py-6 text-center text-slate-500">
                       No items match your search.
                     </td>
                   </tr>

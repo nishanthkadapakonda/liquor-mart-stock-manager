@@ -95,4 +95,16 @@ router.put(
   }),
 );
 
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    await prisma.item.update({
+      where: { id: Number(id) },
+      data: { isActive: false },
+    });
+    res.status(204).send();
+  }),
+);
+
 export const itemRouter = router;
