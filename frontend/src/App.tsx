@@ -9,6 +9,8 @@ import { LoginPage } from "./pages/LoginPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./providers/AuthProvider";
 import { DayEndPage } from "./pages/DayEndPage";
+import { ReportsPage } from "./pages/ReportsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,24 +21,6 @@ const queryClient = new QueryClient({
     },
   },
 });
-
-const placeholderRoutes = [
-  { path: "reports", title: "Reports & Analytics" },
-  { path: "settings", title: "Settings" },
-];
-
-function ComingSoon({ title }: { title: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-10 text-center shadow-sm">
-      <p className="text-xs uppercase tracking-wide text-slate-400">Coming soon</p>
-      <h1 className="mt-2 text-2xl font-semibold text-slate-900">{title}</h1>
-      <p className="mx-auto mt-3 max-w-xl text-sm text-slate-500">
-        This section is still being built. You can continue using the dashboard, items, and
-        purchases screens from the sidebar in the meantime.
-      </p>
-    </div>
-  );
-}
 
 function App() {
   return (
@@ -52,13 +36,8 @@ function App() {
                 <Route path="items" element={<ItemsPage />} />
                 <Route path="purchases" element={<PurchasesPage />} />
                 <Route path="day-end" element={<DayEndPage />} />
-                {placeholderRoutes.map((route) => (
-                  <Route
-                    key={route.path}
-                    path={route.path}
-                    element={<ComingSoon title={route.title} />}
-                  />
-                ))}
+                <Route path="reports" element={<ReportsPage />} />
+                <Route path="settings" element={<SettingsPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

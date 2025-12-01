@@ -287,8 +287,8 @@ export function DayEndPage() {
                     )}
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-12">
-                    <div className="md:col-span-5">
+                  <div className="grid gap-3 lg:grid-cols-12">
+                    <div className="lg:col-span-5">
                       <label className="text-xs font-medium text-slate-500">Select item</label>
                       <select
                         value={line.itemId ?? ""}
@@ -308,7 +308,7 @@ export function DayEndPage() {
                         </p>
                       )}
                     </div>
-                    <div>
+                    <div className="lg:col-span-2">
                       <label className="text-xs font-medium text-slate-500">Channel</label>
                       <select
                         value={line.channel}
@@ -331,7 +331,7 @@ export function DayEndPage() {
                         ))}
                       </select>
                     </div>
-                    <div>
+                    <div className="lg:col-span-2">
                       <label className="text-xs font-medium text-slate-500">Quantity sold</label>
                       <input
                         type="number"
@@ -347,7 +347,7 @@ export function DayEndPage() {
                         required
                       />
                     </div>
-                    <div className="md:col-span-2">
+                    <div className="lg:col-span-2">
                       <label className="text-xs font-medium text-slate-500">Selling price</label>
                       <input
                         type="number"
@@ -366,7 +366,7 @@ export function DayEndPage() {
                       />
                       <p className="mt-1 text-[11px] text-slate-400">Leave empty to auto-calc.</p>
                     </div>
-                    <div>
+                    <div className="lg:col-span-3">
                       <label className="text-xs font-medium text-slate-500">SKU (optional)</label>
                       <input
                         type="text"

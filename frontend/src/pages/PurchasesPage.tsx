@@ -1,10 +1,10 @@
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { api, getErrorMessage } from "../api/client";
 import type { Purchase } from "../api/types";
-import { formatNumber } from "../utils/formatters";
+import { formatCurrency, formatNumber } from "../utils/formatters";
 import { parsePurchaseUpload, type ParsedLine } from "../utils/fileParsers";
 
 interface ManualLine {
@@ -29,6 +29,39 @@ function emptyLine(): ManualLine {
   };
 }
 
+type PurchaseFilter =
+  | { kind: "LAST_30" | "LAST_60"; startDate: string; endDate: string }
+  | { kind: "CUSTOM"; startDate: string; endDate: string }
+  | { kind: "ALL" };
+
+const quickFilterCards = [
+  {
+    kind: "LAST_30",
+    label: "Last 30 days",
+    description: "Invoices from the past month",
+    days: 30,
+  },
+  {
+    kind: "LAST_60",
+    label: "Last 60 days",
+    description: "Two months of history",
+    days: 60,
+  },
+  {
+    kind: "ALL",
+    label: "View all",
+    description: "Complete purchase history",
+  },
+] as const;
+
+function buildDateRange(days: number) {
+  const endDate = dayjs().format("YYYY-MM-DD");
+  return {
+    startDate: dayjs().subtract(days - 1, "day").format("YYYY-MM-DD"),
+    endDate,
+  };
+}
+
 export function PurchasesPage() {
   const [purchaseDate, setPurchaseDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [supplierName, setSupplierName] = useState("");
@@ -40,14 +73,25 @@ export function PurchasesPage() {
   const [importDate, setImportDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [importSupplier, setImportSupplier] = useState("");
   const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
+  const [activeFilter, setActiveFilter] = useState<PurchaseFilter>(() => {
+    const range = buildDateRange(30);
+    return { kind: "LAST_30", ...range };
+  });
+  const [customRange, setCustomRange] = useState(() => buildDateRange(30));
+  const [expandedPurchaseId, setExpandedPurchaseId] = useState<number | null>(null);
 
   const purchasesQuery = useQuery({
-    queryKey: ["purchases"],
+    queryKey: ["purchases", activeFilter.kind, activeFilter.startDate ?? "NA", activeFilter.endDate ?? "NA"],
     queryFn: async () => {
-      const startDate = dayjs().subtract(30, "day").format("YYYY-MM-DD");
-      const endDate = dayjs().format("YYYY-MM-DD");
+      const params =
+        activeFilter.kind === "ALL"
+          ? undefined
+          : {
+              startDate: activeFilter.startDate,
+              endDate: activeFilter.endDate,
+            };
       const response = await api.get<{ purchases: Purchase[] }>("/purchases", {
-        params: { startDate, endDate },
+        params,
       });
       return response.data.purchases;
     },
@@ -60,6 +104,49 @@ export function PurchasesPage() {
     );
     return quantity;
   }, [manualLines]);
+
+  const activeFilterLabel = useMemo(() => {
+    switch (activeFilter.kind) {
+      case "LAST_30":
+        return "last 30 days";
+      case "LAST_60":
+        return "last 60 days";
+      case "ALL":
+        return "entire history";
+      case "CUSTOM":
+        return `${dayjs(activeFilter.startDate).format("DD MMM YYYY")} – ${dayjs(activeFilter.endDate).format("DD MMM YYYY")}`;
+      default:
+        return "";
+    }
+  }, [activeFilter]);
+
+  const applyFilter = (filter: PurchaseFilter) => {
+    setActiveFilter(filter);
+    setExpandedPurchaseId(null);
+  };
+
+  const handleQuickFilter = (kind: (typeof quickFilterCards)[number]["kind"]) => {
+    const card = quickFilterCards.find((entry) => entry.kind === kind);
+    if (!card) return;
+    if (card.kind === "ALL") {
+      applyFilter({ kind: "ALL" });
+      return;
+    }
+    const range = buildDateRange(card.days ?? 30);
+    applyFilter({ kind: card.kind, ...range });
+  };
+
+  const handleCustomView = () => {
+    if (!customRange.startDate || !customRange.endDate) {
+      toast.error("Select both start and end dates");
+      return;
+    }
+    if (dayjs(customRange.endDate).isBefore(customRange.startDate)) {
+      toast.error("End date must be after the start date");
+      return;
+    }
+    applyFilter({ kind: "CUSTOM", startDate: customRange.startDate, endDate: customRange.endDate });
+  };
 
   const resetManualForm = () => {
     setManualLines([emptyLine()]);
@@ -212,6 +299,7 @@ export function PurchasesPage() {
       if (editingPurchase?.id === purchaseId) {
         resetManualForm();
       }
+      setExpandedPurchaseId((current) => (current === purchaseId ? null : current));
       purchasesQuery.refetch();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -379,6 +467,16 @@ export function PurchasesPage() {
               onChange={handleImportChange}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
             />
+            <p className="text-xs text-slate-500">
+              Need a template?{" "}
+              <a
+                href="/samples/purchase-template.csv"
+                download
+                className="font-semibold text-brand-600 hover:underline"
+              >
+                Download sample file
+              </a>
+            </p>
             {importFileName && (
               <p className="text-xs text-slate-500">Loaded: {importFileName}</p>
             )}
@@ -460,10 +558,74 @@ export function PurchasesPage() {
         </div>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {quickFilterCards.map((card) => {
+          const isActive = activeFilter.kind === card.kind;
+          return (
+            <div
+              key={card.kind}
+              className={`rounded-2xl border bg-white p-4 shadow-sm transition ${
+                isActive ? "border-brand-200 shadow-md" : "border-slate-100"
+              }`}
+            >
+              <p className="text-sm font-semibold text-slate-900">{card.label}</p>
+              <p className="mt-1 text-xs text-slate-500">{card.description}</p>
+              <button
+                type="button"
+                onClick={() => handleQuickFilter(card.kind)}
+                disabled={isActive}
+                className={`mt-3 rounded-full px-3 py-1 text-xs font-semibold ${
+                  isActive
+                    ? "bg-brand-200 text-brand-700"
+                    : "border border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-900"
+                } disabled:cursor-not-allowed`}
+              >
+                {isActive ? "Active" : "View"}
+              </button>
+            </div>
+          );
+        })}
+        <div
+          className={`rounded-2xl border bg-white p-4 shadow-sm transition md:col-span-2 xl:col-span-2 ${
+            activeFilter.kind === "CUSTOM" ? "border-brand-200 shadow-md" : "border-slate-100"
+          }`}
+        >
+          <p className="text-sm font-semibold text-slate-900">Custom date range</p>
+          <p className="mt-1 text-xs text-slate-500">Pick any range and view detailed purchases.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-[11px] font-medium text-slate-500">Start date</label>
+              <input
+                type="date"
+                value={customRange.startDate}
+                onChange={(e) => setCustomRange((prev) => ({ ...prev, startDate: e.target.value }))}
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-slate-500">End date</label>
+              <input
+                type="date"
+                value={customRange.endDate}
+                onChange={(e) => setCustomRange((prev) => ({ ...prev, endDate: e.target.value }))}
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCustomView}
+            className="mt-3 w-full rounded-xl border border-brand-200 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50"
+          >
+            View range
+          </button>
+        </div>
+      </div>
+
       <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
           <p className="text-base font-semibold text-slate-900">Recent purchases</p>
-          <span className="text-xs text-slate-500">Last 30 days</span>
+          <span className="text-xs text-slate-500">Showing {activeFilterLabel}</span>
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -473,6 +635,7 @@ export function PurchasesPage() {
                 <th className="py-2">Supplier</th>
                 <th className="py-2">Lines</th>
                 <th className="py-2">Quantity</th>
+                <th className="py-2">Amount</th>
                 <th className="py-2 text-right">Actions</th>
               </tr>
             </thead>
@@ -480,40 +643,123 @@ export function PurchasesPage() {
               {(purchasesQuery.data ?? []).map((purchase) => {
                 const totalQuantity =
                   purchase.lineItems?.reduce((sum, line) => sum + line.quantityUnits, 0) ?? 0;
+                const totalCost =
+                  purchase.totalCost ??
+                  purchase.lineItems?.reduce(
+                    (sum, line) => sum + Number(line.unitCostPrice ?? 0) * line.quantityUnits,
+                    0,
+                  ) ??
+                  0;
                 return (
-                  <tr key={purchase.id}>
-                    <td className="py-2 text-slate-900">
-                      {dayjs(purchase.purchaseDate).format("DD MMM YYYY")}
-                    </td>
-                    <td className="py-2 text-slate-600">{purchase.supplierName ?? "—"}</td>
-                    <td className="py-2 text-slate-600">{purchase.lineItems.length}</td>
-                    <td className="py-2 font-semibold text-slate-900">
-                      {formatNumber(totalQuantity)}
-                    </td>
-                    <td className="py-2 text-right text-xs">
-                      <button
-                        type="button"
-                        onClick={() => handleEditPurchase(purchase.id)}
-                        className="font-semibold text-brand-600 hover:underline"
-                      >
-                        Edit
-                      </button>
-                      <span className="px-1 text-slate-300">|</span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeletePurchase(purchase.id)}
-                        className="font-semibold text-red-500 hover:underline"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={purchase.id}>
+                    <tr>
+                      <td className="py-2 text-slate-900">
+                        {dayjs(purchase.purchaseDate).format("DD MMM YYYY")}
+                      </td>
+                      <td className="py-2 text-slate-600">{purchase.supplierName ?? "—"}</td>
+                      <td className="py-2 text-slate-600">{purchase.lineItems.length}</td>
+                      <td className="py-2 font-semibold text-slate-900">
+                        {formatNumber(totalQuantity)}
+                      </td>
+                      <td className="py-2 text-slate-900">{formatCurrency(totalCost)}</td>
+                      <td className="py-2 text-right text-xs">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedPurchaseId((current) =>
+                                current === purchase.id ? null : purchase.id,
+                              )
+                            }
+                            className="font-semibold text-brand-600 hover:underline"
+                          >
+                            {expandedPurchaseId === purchase.id ? "Hide" : "View"}
+                          </button>
+                          <span className="text-slate-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => handleEditPurchase(purchase.id)}
+                            className="font-semibold text-slate-600 hover:underline"
+                          >
+                            Edit
+                          </button>
+                          <span className="text-slate-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePurchase(purchase.id)}
+                            className="font-semibold text-red-500 hover:underline"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedPurchaseId === purchase.id && (
+                      <tr>
+                        <td colSpan={6} className="bg-slate-50 px-4 py-3">
+                          <div className="space-y-3 text-xs text-slate-600">
+                            <div className="flex flex-wrap justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-slate-900">
+                                  {purchase.supplierName ?? "Depot / supplier not set"}
+                                </p>
+                                {purchase.notes && <p className="mt-1">Notes: {purchase.notes}</p>}
+                              </div>
+                              <div className="text-right font-semibold text-slate-900">
+                                <p>Total units: {formatNumber(totalQuantity)}</p>
+                                <p>Total cost: {formatCurrency(totalCost)}</p>
+                              </div>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-[11px]">
+                                <thead className="text-left uppercase text-slate-400">
+                                  <tr>
+                                    <th className="py-1">Item</th>
+                                    <th className="py-1">SKU</th>
+                                    <th className="py-1">Qty</th>
+                                    <th className="py-1">Unit cost</th>
+                                    <th className="py-1">MRP</th>
+                                    <th className="py-1 text-right">Line total</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200">
+                                  {purchase.lineItems.map((line) => {
+                                    const unitCost = Number(line.unitCostPrice ?? 0);
+                                    const mrpAtPurchase =
+                                      line.mrpPriceAtPurchase !== null &&
+                                      line.mrpPriceAtPurchase !== undefined
+                                        ? Number(line.mrpPriceAtPurchase)
+                                        : Number(line.item.mrpPrice ?? 0);
+                                    const lineTotalCost = unitCost * line.quantityUnits;
+                                    return (
+                                      <tr key={line.id}>
+                                        <td className="py-1 font-semibold text-slate-900">
+                                          {line.item.name}
+                                        </td>
+                                        <td className="py-1 text-slate-500">{line.item.sku ?? "—"}</td>
+                                        <td className="py-1">{formatNumber(line.quantityUnits)}</td>
+                                        <td className="py-1">{formatCurrency(unitCost)}</td>
+                                        <td className="py-1">{formatCurrency(mrpAtPurchase)}</td>
+                                        <td className="py-1 text-right font-semibold text-slate-900">
+                                          {formatCurrency(lineTotalCost)}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
               {(purchasesQuery.data?.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-6 text-center text-slate-500">
-                    No purchases recorded yet.
+                  <td colSpan={6} className="py-6 text-center text-slate-500">
+                    No purchases recorded for this range.
                   </td>
                 </tr>
               )}
