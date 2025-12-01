@@ -1,5 +1,10 @@
 export type SalesChannel = "RETAIL" | "BELT";
 
+export interface AppSettings {
+  defaultBeltMarkupRupees?: number | string | null;
+  defaultLowStockThreshold?: number | null;
+}
+
 export interface AdminUser {
   id: number;
   email: string;
@@ -65,10 +70,7 @@ export interface DashboardSummary {
   reports: DayEndReport[];
   topItems: { itemId: number; name: string; units: number; revenue: number }[];
   latestReport?: DayEndReport | null;
-  settings?: {
-    defaultBeltMarkupRupees?: string | number | null;
-    defaultLowStockThreshold?: number | null;
-  } | null;
+  settings?: AppSettings | null;
   lowStockItems: Item[];
 }
 
