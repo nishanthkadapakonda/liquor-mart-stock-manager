@@ -1,0 +1,225 @@
+import { FormEvent, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import { api, getErrorMessage } from "../api/client";
+import type { Item } from "../api/types";
+import { formatNumber } from "../utils/formatters";
+
+export function ItemsPage() {
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState({
+    sku: "",
+    name: "",
+    brand: "",
+    category: "",
+    volumeMl: "",
+    mrpPrice: "",
+    purchaseCostPrice: "",
+    reorderLevel: "",
+  });
+
+  const itemsQuery = useQuery({
+    queryKey: ["items"],
+    queryFn: async () => {
+      const response = await api.get<{ items: Item[] }>("/items");
+      return response.data.items;
+    },
+  });
+
+  const lowStockQuery = useQuery({
+    queryKey: ["items", "low-stock"],
+    queryFn: async () => {
+      const response = await api.get<{ items: Item[]; threshold: number }>("/items/low-stock");
+      return response.data;
+    },
+  });
+
+  const filteredItems = useMemo(() => {
+    if (!itemsQuery.data) return [];
+    if (!search) return itemsQuery.data;
+    const term = search.toLowerCase();
+    return itemsQuery.data.filter(
+      (item) =>
+        item.name.toLowerCase().includes(term) ||
+        item.sku.toLowerCase().includes(term) ||
+        (item.brand ?? "").toLowerCase().includes(term),
+    );
+  }, [itemsQuery.data, search]);
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      await api.post("/items", {
+        sku: form.sku,
+        name: form.name,
+        brand: form.brand || undefined,
+        category: form.category || undefined,
+        volumeMl: form.volumeMl ? Number(form.volumeMl) : undefined,
+        mrpPrice: Number(form.mrpPrice),
+        purchaseCostPrice: form.purchaseCostPrice ? Number(form.purchaseCostPrice) : undefined,
+        reorderLevel: form.reorderLevel ? Number(form.reorderLevel) : undefined,
+        currentStockUnits: 0,
+        isActive: true,
+      });
+      toast.success("Item added");
+      setForm({
+        sku: "",
+        name: "",
+        brand: "",
+        category: "",
+        volumeMl: "",
+        mrpPrice: "",
+        purchaseCostPrice: "",
+        reorderLevel: "",
+      });
+      itemsQuery.refetch();
+      lowStockQuery.refetch();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+        <div>
+          <p className="text-sm uppercase text-slate-400">Inventory</p>
+          <h1 className="text-2xl font-semibold text-slate-900">Items & Stock</h1>
+        </div>
+        <input
+          type="text"
+          placeholder="Search by SKU, name, brand..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full max-w-sm rounded-full border border-slate-200 px-4 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+        />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <form
+          onSubmit={handleSubmit}
+          className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-1"
+        >
+          <p className="text-base font-semibold text-slate-900">Create / Import Item</p>
+          <div className="mt-4 space-y-4 text-sm">
+            {Object.entries({
+              sku: "SKU",
+              name: "Name",
+              brand: "Brand",
+              category: "Category",
+              volumeMl: "Volume (ml)",
+              mrpPrice: "MRP Price",
+              purchaseCostPrice: "Cost Price",
+              reorderLevel: "Reorder Level",
+            }).map(([key, label]) => (
+              <div key={key}>
+                <label className="text-xs font-medium text-slate-500">{label}</label>
+                <input
+                  type="text"
+                  value={(form as Record<string, string>)[key] ?? ""}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      [key]: e.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                  required={key === "sku" || key === "name" || key === "mrpPrice"}
+                />
+              </div>
+            ))}
+          </div>
+          <button
+            type="submit"
+            className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500"
+          >
+            Save Item
+          </button>
+          <p className="mt-2 text-xs text-slate-400">
+            Creating a purchase will increase stock automatically.
+          </p>
+        </form>
+
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
+          <div className="flex items-center justify-between">
+            <p className="text-base font-semibold text-slate-900">Catalog ({filteredItems.length})</p>
+            <button
+              type="button"
+              onClick={() => itemsQuery.refetch()}
+              className="text-xs font-semibold text-brand-600"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-xs uppercase text-slate-400">
+                <tr>
+                  <th className="py-2">Item</th>
+                  <th className="py-2">Brand</th>
+                  <th className="py-2">MRP</th>
+                  <th className="py-2">Stock</th>
+                  <th className="py-2">Reorder</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredItems.map((item) => (
+                  <tr key={item.id} className="align-top">
+                    <td className="py-3">
+                      <p className="font-semibold text-slate-900">{item.name}</p>
+                      <p className="text-xs text-slate-500">SKU: {item.sku}</p>
+                    </td>
+                    <td className="py-3 text-slate-600">{item.brand ?? "—"}</td>
+                    <td className="py-3 text-slate-600">₹{Number(item.mrpPrice)}</td>
+                    <td className="py-3 font-semibold text-slate-900">
+                      {formatNumber(item.currentStockUnits)}
+                    </td>
+                    <td className="py-3 text-slate-600">
+                      {item.reorderLevel ?? lowStockQuery.data?.threshold ?? 10}
+                    </td>
+                  </tr>
+                ))}
+                {filteredItems.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-6 text-center text-slate-500">
+                      No items match your search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <p className="text-base font-semibold text-slate-900">Low stock focus</p>
+          <span className="text-xs text-slate-500">
+            Threshold: {lowStockQuery.data?.threshold ?? 10} units
+          </span>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {(lowStockQuery.data?.items ?? []).map((item) => (
+            <div
+              key={item.id}
+              className="rounded-2xl border border-red-100 bg-red-50/60 px-4 py-3 text-sm"
+            >
+              <p className="font-semibold text-slate-900">{item.name}</p>
+              <p className="text-xs text-slate-500">SKU: {item.sku}</p>
+              <div className="mt-2 flex items-center justify-between">
+                <p className="text-red-600">{item.currentStockUnits} units left</p>
+                <p className="text-slate-500 text-xs">
+                  Reorder &lt; {item.reorderLevel ?? lowStockQuery.data?.threshold ?? 10}
+                </p>
+              </div>
+            </div>
+          ))}
+          {(lowStockQuery.data?.items?.length ?? 0) === 0 && (
+            <p className="text-sm text-slate-500">All good! No low stock items right now.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

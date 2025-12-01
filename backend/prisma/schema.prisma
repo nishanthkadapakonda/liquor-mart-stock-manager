@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Setting {
+  id                       Int      @id @default(1)
+  defaultBeltMarkupRupees  Decimal  @default(20)
+  defaultLowStockThreshold Int      @default(10)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model Item {
+  id                  Int                  @id @default(autoincrement())
+  sku                 String               @unique
+  name                String
+  brand               String?
+  category            String?
+  volumeMl            Int?
+  mrpPrice            Decimal
+  purchaseCostPrice   Decimal?
+  currentStockUnits   Int                  @default(0)
+  reorderLevel        Int?
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  purchases           PurchaseLineItem[]
+  salesLines          DayEndReportLine[]
+  adjustments         StockAdjustment[]
+}
+
+model Purchase {
+  id           Int                @id @default(autoincrement())
+  purchaseDate DateTime
+  supplierName String?
+  notes        String?
+  createdAt    DateTime           @default(now())
+  lineItems    PurchaseLineItem[]
+}
+
+model PurchaseLineItem {
+  id                  Int       @id @default(autoincrement())
+  purchase            Purchase  @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  purchaseId          Int
+  item                Item      @relation(fields: [itemId], references: [id])
+  itemId              Int
+  quantityUnits       Int
+  unitCostPrice       Decimal
+  mrpPriceAtPurchase  Decimal?
+  createdAt           DateTime  @default(now())
+}
+
+model DayEndReport {
+  id               Int                 @id @default(autoincrement())
+  reportDate       DateTime            @unique
+  beltMarkupRupees Decimal             @default(20)
+  totalSalesAmount Decimal?
+  totalUnitsSold   Int?
+  retailRevenue    Decimal?
+  beltRevenue      Decimal?
+  notes            String?
+  createdAt        DateTime            @default(now())
+  lines            DayEndReportLine[]
+}
+
+model DayEndReportLine {
+  id                    Int          @id @default(autoincrement())
+  report                DayEndReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportId              Int
+  item                  Item         @relation(fields: [itemId], references: [id])
+  itemId                Int
+  channel               String
+  quantitySoldUnits     Int
+  mrpPrice              Decimal
+  sellingPricePerUnit   Decimal
+  lineRevenue           Decimal
+  createdAt             DateTime     @default(now())
+
+  @@index([reportId])
+  @@index([itemId])
+}
+
+model StockAdjustment {
+  id              Int      @id @default(autoincrement())
+  item            Item     @relation(fields: [itemId], references: [id])
+  itemId          Int
+  adjustmentUnits Int
+  reason          String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+}
