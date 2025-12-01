@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { asyncHandler } from "../utils/asyncHandler";
-import { createPurchase } from "../services/purchaseService";
+import { createPurchase, deletePurchase, updatePurchase } from "../services/purchaseService";
 
 const router = Router();
 
@@ -91,6 +91,25 @@ router.post(
     const payload = purchaseSchema.parse(req.body);
     const result = await createPurchase({ ...payload, allowItemCreation: true });
     res.status(201).json(result);
+  }),
+);
+
+router.put(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const payload = purchaseSchema.parse(req.body);
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const result = await updatePurchase(Number(id), payload);
+    res.json(result);
+  }),
+);
+
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    await deletePurchase(Number(id));
+    res.status(204).send();
   }),
 );
 

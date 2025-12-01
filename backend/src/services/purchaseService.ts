@@ -1,4 +1,4 @@
-import type { Prisma, Purchase } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 
 export interface PurchaseLineInput {
@@ -68,6 +68,99 @@ export async function createPurchase(input: PurchaseInput) {
         lineCount: input.lineItems.length,
       },
     };
+  });
+}
+
+export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
+  if (input.lineItems.length === 0) {
+    throw new Error("At least one line item is required");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.purchase.findUnique({
+      where: { id: purchaseId },
+      include: { lineItems: true },
+    });
+
+    if (!existing) {
+      throw new Error("Purchase not found");
+    }
+
+    for (const line of existing.lineItems) {
+      await tx.item.update({
+        where: { id: line.itemId },
+        data: {
+          currentStockUnits: { decrement: line.quantityUnits },
+        },
+      });
+    }
+
+    await tx.purchaseLineItem.deleteMany({ where: { purchaseId } });
+
+    const purchase = await tx.purchase.update({
+      where: { id: purchaseId },
+      data: {
+        purchaseDate: new Date(input.purchaseDate),
+        supplierName: input.supplierName,
+        notes: input.notes,
+      },
+    });
+
+    let totalQuantity = 0;
+    for (const line of input.lineItems) {
+      const itemId = await resolveItem(tx, line, input.allowItemCreation ?? true);
+      await tx.purchaseLineItem.create({
+        data: {
+          purchaseId: purchase.id,
+          itemId,
+          quantityUnits: line.quantityUnits,
+          unitCostPrice: new Prisma.Decimal(line.unitCostPrice),
+          mrpPriceAtPurchase: new Prisma.Decimal(line.mrpPrice),
+        },
+      });
+
+      await tx.item.update({
+        where: { id: itemId },
+        data: {
+          mrpPrice: new Prisma.Decimal(line.mrpPrice),
+          purchaseCostPrice: new Prisma.Decimal(line.unitCostPrice),
+          currentStockUnits: { increment: line.quantityUnits },
+        },
+      });
+      totalQuantity += line.quantityUnits;
+    }
+
+    return {
+      purchase,
+      totals: {
+        totalQuantity,
+        lineCount: input.lineItems.length,
+      },
+    };
+  });
+}
+
+export async function deletePurchase(purchaseId: number) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.purchase.findUnique({
+      where: { id: purchaseId },
+      include: { lineItems: true },
+    });
+
+    if (!existing) {
+      throw new Error("Purchase not found");
+    }
+
+    for (const line of existing.lineItems) {
+      await tx.item.update({
+        where: { id: line.itemId },
+        data: {
+          currentStockUnits: { decrement: line.quantityUnits },
+        },
+      });
+    }
+
+    await tx.purchase.delete({ where: { id: purchaseId } });
   });
 }
 
