@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { api, getErrorMessage, setAuthHeader, TOKEN_STORAGE_KEY } from "../api/client";
 import type { AdminUser } from "../api/types";
@@ -25,7 +26,17 @@ const initialToken =
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(initialToken);
   const [user, setUser] = useState<AdminUser | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(Boolean(initialToken));
+
+  const handleLogout = useCallback(() => {
+    setAuthHeader(null);
+    setUser(null);
+    setToken(null);
+    setLoading(false);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  }, []);
 
   useEffect(() => {
     const interceptor = api.interceptors.response.use(
@@ -40,38 +51,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       api.interceptors.response.eject(interceptor);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [handleLogout]);
 
   useEffect(() => {
     if (!token) {
       setAuthHeader(null);
-      setUser(null);
-      setLoading(false);
       return;
     }
 
+    let cancelled = false;
     setAuthHeader(token);
-    setLoading(true);
     api
       .get("/auth/me")
-      .then((res) => setUser(res.data.user))
-      .catch(() => {
-        handleLogout();
+      .then((res) => {
+        if (!cancelled) {
+          setUser(res.data.user);
+        }
       })
-      .finally(() => setLoading(false));
-  }, [token]);
+      .catch(() => {
+        if (!cancelled) {
+          handleLogout();
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
 
-  const handleLogout = () => {
-    setAuthHeader(null);
-    setUser(null);
-    setToken(null);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-    }
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [token, handleLogout]);
 
-  const login = async ({ email, password, remember }: LoginInput) => {
+  const login = useCallback(async ({ email, password, remember }: LoginInput) => {
+    setLoading(true);
     try {
       const { data } = await api.post("/auth/login", { email, password });
       setToken(data.token);
@@ -84,15 +98,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       toast.success("Welcome back!");
     } catch (error) {
+      setLoading(false);
       toast.error(getErrorMessage(error));
       throw error;
     }
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     handleLogout();
     toast.success("Signed out");
-  };
+  }, [handleLogout]);
 
   const value = useMemo(
     () => ({
@@ -102,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       logout,
     }),
-    [user, token, loading],
+    [user, token, loading, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

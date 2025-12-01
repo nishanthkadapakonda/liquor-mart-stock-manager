@@ -8,6 +8,7 @@ import { PurchasesPage } from "./pages/PurchasesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./providers/AuthProvider";
+import { DayEndPage } from "./pages/DayEndPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,7 +21,6 @@ const queryClient = new QueryClient({
 });
 
 const placeholderRoutes = [
-  { path: "day-end", title: "Day-End Sales" },
   { path: "reports", title: "Reports & Analytics" },
   { path: "settings", title: "Settings" },
 ];
@@ -51,6 +51,7 @@ function App() {
                 <Route index element={<DashboardPage />} />
                 <Route path="items" element={<ItemsPage />} />
                 <Route path="purchases" element={<PurchasesPage />} />
+                <Route path="day-end" element={<DayEndPage />} />
                 {placeholderRoutes.map((route) => (
                   <Route
                     key={route.path}
