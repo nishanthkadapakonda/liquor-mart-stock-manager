@@ -28,18 +28,26 @@ export async function createPurchase(input: PurchaseInput) {
     throw new Error("At least one line item is required");
   }
 
+  const purchaseDateValue = new Date(input.purchaseDate);
+
   return prisma.$transaction(async (tx) => {
     const purchase = await tx.purchase.create({
       data: {
-        purchaseDate: new Date(input.purchaseDate),
+        purchaseDate: purchaseDateValue,
         supplierName: input.supplierName,
         notes: input.notes,
       },
     });
 
     let totalQuantity = 0;
+    const priceUpdateCache = new Map<number, boolean>();
     for (const line of input.lineItems) {
       const itemId = await resolveItem(tx, line, input.allowItemCreation ?? true);
+      const shouldUpdatePricing =
+        priceUpdateCache.get(itemId) ??
+        (await shouldUpdateItemPricing(tx, itemId, purchaseDateValue));
+      priceUpdateCache.set(itemId, shouldUpdatePricing);
+
       await tx.purchaseLineItem.create({
         data: {
           purchaseId: purchase.id,
@@ -50,13 +58,16 @@ export async function createPurchase(input: PurchaseInput) {
         },
       });
 
+      const itemUpdateData: Prisma.ItemUpdateInput = {
+        currentStockUnits: { increment: line.quantityUnits },
+      };
+      if (shouldUpdatePricing) {
+        itemUpdateData.mrpPrice = new Prisma.Decimal(line.mrpPrice);
+        itemUpdateData.purchaseCostPrice = new Prisma.Decimal(line.unitCostPrice);
+      }
       await tx.item.update({
         where: { id: itemId },
-        data: {
-          mrpPrice: new Prisma.Decimal(line.mrpPrice),
-          purchaseCostPrice: new Prisma.Decimal(line.unitCostPrice),
-          currentStockUnits: { increment: line.quantityUnits },
-        },
+        data: itemUpdateData,
       });
       totalQuantity += line.quantityUnits;
     }
@@ -75,6 +86,8 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
   if (input.lineItems.length === 0) {
     throw new Error("At least one line item is required");
   }
+
+  const purchaseDateValue = new Date(input.purchaseDate);
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.purchase.findUnique({
@@ -100,15 +113,21 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
     const purchase = await tx.purchase.update({
       where: { id: purchaseId },
       data: {
-        purchaseDate: new Date(input.purchaseDate),
+        purchaseDate: purchaseDateValue,
         supplierName: input.supplierName,
         notes: input.notes,
       },
     });
 
     let totalQuantity = 0;
+    const priceUpdateCache = new Map<number, boolean>();
     for (const line of input.lineItems) {
       const itemId = await resolveItem(tx, line, input.allowItemCreation ?? true);
+      const shouldUpdatePricing =
+        priceUpdateCache.get(itemId) ??
+        (await shouldUpdateItemPricing(tx, itemId, purchaseDateValue));
+      priceUpdateCache.set(itemId, shouldUpdatePricing);
+
       await tx.purchaseLineItem.create({
         data: {
           purchaseId: purchase.id,
@@ -119,13 +138,16 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
         },
       });
 
+      const itemUpdateData: Prisma.ItemUpdateInput = {
+        currentStockUnits: { increment: line.quantityUnits },
+      };
+      if (shouldUpdatePricing) {
+        itemUpdateData.mrpPrice = new Prisma.Decimal(line.mrpPrice);
+        itemUpdateData.purchaseCostPrice = new Prisma.Decimal(line.unitCostPrice);
+      }
       await tx.item.update({
         where: { id: itemId },
-        data: {
-          mrpPrice: new Prisma.Decimal(line.mrpPrice),
-          purchaseCostPrice: new Prisma.Decimal(line.unitCostPrice),
-          currentStockUnits: { increment: line.quantityUnits },
-        },
+        data: itemUpdateData,
       });
       totalQuantity += line.quantityUnits;
     }
@@ -205,4 +227,20 @@ async function resolveItem(
     },
   });
   return item.id;
+}
+
+async function shouldUpdateItemPricing(
+  tx: Prisma.TransactionClient,
+  itemId: number,
+  purchaseDate: Date,
+) {
+  const latestLine = await tx.purchaseLineItem.findFirst({
+    where: { itemId },
+    include: { purchase: true },
+    orderBy: { purchase: { purchaseDate: "desc" } },
+  });
+  if (!latestLine) {
+    return true;
+  }
+  return purchaseDate >= latestLine.purchase.purchaseDate;
 }
