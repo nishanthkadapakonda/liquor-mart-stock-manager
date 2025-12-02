@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { api, getErrorMessage } from "../api/client";
 import type { AdminUser, UserRole } from "../api/types";
+import { useAuth } from "../providers/AuthProvider";
 
 interface UserListItem extends Pick<AdminUser, "id" | "email" | "name" | "role"> {
   createdAt: string;
@@ -15,6 +16,7 @@ const roleOptions: Array<{ label: string; value: UserRole; description: string }
 ];
 
 export function UsersPage() {
+  const { user: currentUser } = useAuth();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -22,6 +24,7 @@ export function UsersPage() {
     role: "VIEWER" as UserRole,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
 
   const usersQuery = useQuery({
     queryKey: ["users"],
@@ -48,6 +51,28 @@ export function UsersPage() {
       toast.error(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteUser = async (user: UserListItem) => {
+    if (currentUser?.id === user.id) {
+      toast.error("You cannot delete your own account.");
+      return;
+    }
+    const confirmed = window.confirm(`Remove ${user.email}? They will lose access immediately.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingUserId(user.id);
+    try {
+      await api.delete(`/users/${user.id}`);
+      toast.success("User removed");
+      usersQuery.refetch();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setDeletingUserId(null);
     }
   };
 
@@ -154,6 +179,7 @@ export function UsersPage() {
                   <th className="px-3 py-2">Email</th>
                   <th className="px-3 py-2">Role</th>
                   <th className="px-3 py-2">Added on</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -175,11 +201,21 @@ export function UsersPage() {
                     <td className="px-3 py-2 text-slate-500">
                       {dayjs(user.createdAt).format("DD MMM YYYY")}
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        disabled={deletingUserId === user.id}
+                        onClick={() => handleDeleteUser(user)}
+                        className="text-xs font-semibold text-red-600 disabled:text-red-300"
+                      >
+                        {deletingUserId === user.id ? "Removing…" : "Remove"}
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {(sortedUsers.length === 0 || usersQuery.isLoading) && (
                   <tr>
-                    <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                    <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
                       {usersQuery.isLoading ? "Loading users…" : "No users added yet."}
                     </td>
                   </tr>
