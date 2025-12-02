@@ -4,8 +4,10 @@
   "description": "Liquor Mart Stock & Sales Manager backend API",
   "main": "dist/server.js",
   "scripts": {
+    "predev": "npm run prisma:deploy",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
+    "prestart": "npm run prisma:deploy",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

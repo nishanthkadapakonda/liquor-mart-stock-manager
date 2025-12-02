@@ -16,6 +16,10 @@ const userSchema = z.object({
   role: z.enum(USER_ROLES).default("VIEWER"),
 });
 
+const userIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
 router.get(
   "/",
   requireAdmin,
@@ -63,6 +67,33 @@ router.post(
       }
       throw error;
     }
+  }),
+);
+
+router.delete(
+  "/:id",
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = userIdParamSchema.parse(req.params);
+
+    if (req.currentAdmin?.id === id) {
+      return res.status(400).json({ message: "You cannot delete your own account" });
+    }
+
+    const user = await prisma.adminUser.findUnique({ where: { id } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.role === "ADMIN") {
+      const adminCount = await prisma.adminUser.count({ where: { role: "ADMIN" } });
+      if (adminCount <= 1) {
+        return res.status(400).json({ message: "At least one admin is required" });
+      }
+    }
+
+    await prisma.adminUser.delete({ where: { id } });
+    res.json({ success: true });
   }),
 );
 
