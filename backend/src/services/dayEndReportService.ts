@@ -65,7 +65,7 @@ export async function createDayEndReport(input: DayEndReportInput) {
         totalUnitsSold: summary.totalUnits,
         retailRevenue: new Prisma.Decimal(summary.retailRevenue),
         beltRevenue: new Prisma.Decimal(summary.beltRevenue),
-        notes: input.notes,
+        notes: input.notes ?? null,
       },
     });
 
@@ -99,6 +99,110 @@ export async function createDayEndReport(input: DayEndReportInput) {
   });
 }
 
+export async function updateDayEndReport(reportId: number, input: DayEndReportInput) {
+  if (input.lines.length === 0) {
+    throw new Error("At least one line is required");
+  }
+
+  const beltMarkup = await resolveBeltMarkup(input);
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.dayEndReport.findUnique({
+      where: { id: reportId },
+      include: { lines: true },
+    });
+    if (!existing) {
+      throw new Error("Report not found");
+    }
+
+    // rollback previous stock impact
+    for (const line of existing.lines) {
+      await tx.item.update({
+        where: { id: line.itemId },
+        data: {
+          currentStockUnits: { increment: line.quantitySoldUnits },
+        },
+      });
+    }
+
+    await tx.dayEndReportLine.deleteMany({ where: { reportId } });
+
+    const prepared = await prepareLines(input, beltMarkup, tx);
+    if (prepared.shortages.length > 0) {
+      throw new Error(
+        `Cannot update report. Items with insufficient stock: ${prepared.shortages
+          .map((s) => `${s.itemName} (needs ${s.required}, has ${s.available})`)
+          .join(", ")}`,
+      );
+    }
+
+    const summary = summarize(prepared.lines);
+    const report = await tx.dayEndReport.update({
+      where: { id: reportId },
+      data: {
+        reportDate: new Date(input.reportDate),
+        beltMarkupRupees: new Prisma.Decimal(beltMarkup),
+        totalSalesAmount: new Prisma.Decimal(summary.totalRevenue),
+        totalUnitsSold: summary.totalUnits,
+        retailRevenue: new Prisma.Decimal(summary.retailRevenue),
+        beltRevenue: new Prisma.Decimal(summary.beltRevenue),
+        notes: input.notes ?? null,
+      },
+    });
+
+    for (const line of prepared.lines) {
+      await tx.dayEndReportLine.create({
+        data: {
+          reportId,
+          itemId: line.itemId,
+          channel: line.channel,
+          quantitySoldUnits: line.quantitySoldUnits,
+          mrpPrice: new Prisma.Decimal(line.mrpPrice),
+          sellingPricePerUnit: new Prisma.Decimal(line.sellingPricePerUnit),
+          lineRevenue: new Prisma.Decimal(line.lineRevenue),
+        },
+      });
+    }
+
+    for (const agg of prepared.aggregated.values()) {
+      await tx.item.update({
+        where: { id: agg.itemId },
+        data: {
+          currentStockUnits: { decrement: agg.quantity },
+        },
+      });
+    }
+
+    return {
+      report,
+      summary,
+    };
+  });
+}
+
+export async function deleteDayEndReport(reportId: number) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.dayEndReport.findUnique({
+      where: { id: reportId },
+      include: { lines: true },
+    });
+    if (!existing) {
+      throw new Error("Report not found");
+    }
+
+    for (const line of existing.lines) {
+      await tx.item.update({
+        where: { id: line.itemId },
+        data: {
+          currentStockUnits: { increment: line.quantitySoldUnits },
+        },
+      });
+    }
+
+    await tx.dayEndReport.delete({ where: { id: reportId } });
+  });
+}
+
 async function resolveBeltMarkup(input: DayEndReportInput) {
   if (typeof input.beltMarkupRupees === "number") {
     return input.beltMarkupRupees;
@@ -110,7 +214,7 @@ async function resolveBeltMarkup(input: DayEndReportInput) {
 async function prepareLines(
   input: DayEndReportInput,
   beltMarkup: number,
-  tx = prisma,
+  tx?: Prisma.TransactionClient,
 ): Promise<{
   lines: PreparedLine[];
   aggregated: Map<
@@ -135,8 +239,10 @@ async function prepareLines(
     { itemId: number; itemName: string; quantity: number; available: number }
   >();
 
+  const client = tx ?? prisma;
+
   for (const line of input.lines) {
-    const item = await resolveExistingItem(tx, line);
+    const item = await resolveExistingItem(client, line);
     const mrpPrice = Number(item.mrpPrice);
     const sellingPricePerUnit =
       typeof line.sellingPricePerUnit === "number"

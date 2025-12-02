@@ -6,11 +6,12 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { ItemsPage } from "./pages/ItemsPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { LoginPage } from "./pages/LoginPage";
-import { ProtectedRoute } from "./components/ProtectedRoute";
+import { AdminRoute, ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./providers/AuthProvider";
 import { DayEndPage } from "./pages/DayEndPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { UsersPage } from "./pages/UsersPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +39,9 @@ function App() {
                 <Route path="day-end" element={<DayEndPage />} />
                 <Route path="reports" element={<ReportsPage />} />
                 <Route path="settings" element={<SettingsPage />} />
+                <Route element={<AdminRoute />}>
+                  <Route path="users" element={<UsersPage />} />
+                </Route>
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

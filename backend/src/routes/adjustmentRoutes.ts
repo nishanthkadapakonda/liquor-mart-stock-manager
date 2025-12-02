@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { asyncHandler } from "../utils/asyncHandler";
+import { requireAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
@@ -25,13 +26,16 @@ router.get(
 
 router.post(
   "/",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const payload = adjustmentSchema.parse(req.body);
     const adjustment = await prisma.$transaction(async (tx) => {
       const created = await tx.stockAdjustment.create({
         data: {
-          ...payload,
-          createdBy: req.currentAdmin?.email,
+          itemId: payload.itemId,
+          adjustmentUnits: payload.adjustmentUnits,
+          reason: payload.reason ?? null,
+          createdBy: req.currentAdmin?.email ?? null,
         },
       });
       await tx.item.update({

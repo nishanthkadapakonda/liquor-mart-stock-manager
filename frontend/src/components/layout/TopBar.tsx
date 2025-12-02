@@ -33,6 +33,11 @@ export function TopBar() {
           <div className="text-right">
             <p className="text-sm font-semibold text-slate-900">{user?.name ?? "Admin"}</p>
             <p className="text-xs text-slate-500">{user?.email}</p>
+            {user?.role && (
+              <span className="mt-0.5 inline-flex items-center justify-end text-[11px] uppercase text-slate-400">
+                {user.role === "ADMIN" ? "Admin" : "Viewer"}
+              </span>
+            )}
           </div>
           <button
             type="button"

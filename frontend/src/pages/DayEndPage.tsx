@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
@@ -12,6 +12,8 @@ import type {
   SalesChannel,
 } from "../api/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
+import { useAuth } from "../providers/AuthProvider";
+import { parseDayEndUpload, type ParsedLine } from "../utils/fileParsers";
 
 interface DayEndLineForm extends Omit<DayEndLineInput, "quantitySoldUnits"> {
   id: string;
@@ -36,6 +38,8 @@ function createEmptyLine(): DayEndLineForm {
 }
 
 export function DayEndPage() {
+  const { user } = useAuth();
+  const canEdit = user?.role === "ADMIN";
   const [reportDate, setReportDate] = useState(() => dayjs().format("YYYY-MM-DD"));
   const [beltMarkup, setBeltMarkup] = useState("");
   const [notes, setNotes] = useState("");
@@ -44,6 +48,11 @@ export function DayEndPage() {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
+  const [editingReport, setEditingReport] = useState<DayEndReport | null>(null);
+  const [loadingReportId, setLoadingReportId] = useState<number | null>(null);
+  const [deleteInFlight, setDeleteInFlight] = useState<number | null>(null);
+  const [importPreview, setImportPreview] = useState<ParsedLine<DayEndLineInput>[]>([]);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -95,6 +104,15 @@ export function DayEndPage() {
     }
     return map;
   }, [itemsQuery.data]);
+  const itemsBySku = useMemo(() => {
+    const map = new Map<string, Item>();
+    for (const item of itemsQuery.data ?? []) {
+      if (item.sku) {
+        map.set(item.sku.toLowerCase(), item);
+      }
+    }
+    return map;
+  }, [itemsQuery.data]);
 
   const plannedTotalUnits = useMemo(
     () =>
@@ -111,12 +129,25 @@ export function DayEndPage() {
   );
 
   const markupNumber = beltMarkup ? Number(beltMarkup) : beltMarkupFallback;
+  const isEditingExisting = Boolean(editingReport);
+
+  const importSummary = useMemo(() => {
+    if (!importPreview.length) {
+      return { rows: 0, units: 0, issues: 0 };
+    }
+    const units = importPreview.reduce((sum, row) => sum + (row.payload.quantitySoldUnits ?? 0), 0);
+    const issues = importPreview.filter((row) => row.issues.length > 0).length;
+    return { rows: importPreview.length, units, issues };
+  }, [importPreview]);
 
   const resetForm = () => {
     setReportDate(dayjs().format("YYYY-MM-DD"));
     setNotes("");
     setLines([createEmptyLine()]);
     setPreview(null);
+    setEditingReport(null);
+    setImportPreview([]);
+    setImportFileName(null);
   };
 
   const updateLine = (id: string, updater: (line: DayEndLineForm) => DayEndLineForm) => {
@@ -168,7 +199,108 @@ export function DayEndPage() {
     return prepared;
   };
 
+  const applyImportedLines = () => {
+    if (!importPreview.length) {
+      return;
+    }
+    const nextLines = importPreview.map((row) => {
+      const skuKey = row.payload.sku?.toLowerCase() ?? "";
+      const matched = skuKey ? itemsBySku.get(skuKey) : undefined;
+      return {
+        id: crypto.randomUUID(),
+        itemId: matched?.id,
+        sku: row.payload.sku ?? matched?.sku ?? "",
+        channel: row.payload.channel,
+        quantitySoldUnits: String(row.payload.quantitySoldUnits ?? 0),
+        sellingPricePerUnit:
+          row.payload.sellingPricePerUnit ??
+          (matched ? suggestPrice(matched, row.payload.channel, markupNumber) : undefined),
+      };
+    });
+    if (nextLines.length) {
+      setLines(nextLines);
+    }
+    setImportPreview([]);
+    setImportFileName(null);
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = await parseDayEndUpload(file);
+      setImportPreview(parsed);
+      setImportFileName(file.name);
+      toast.success(`Loaded ${parsed.length} rows`);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const clearImportPreview = () => {
+    setImportPreview([]);
+    setImportFileName(null);
+  };
+
+  const handleEditReport = async (reportId: number) => {
+    setLoadingReportId(reportId);
+    try {
+      const response = await api.get<{ report: DayEndReport }>(`/day-end-reports/${reportId}`);
+      const report = response.data.report;
+      setEditingReport(report);
+      setReportDate(dayjs(report.reportDate).format("YYYY-MM-DD"));
+      setBeltMarkup(
+        report.beltMarkupRupees !== null && report.beltMarkupRupees !== undefined
+          ? String(report.beltMarkupRupees)
+          : "",
+      );
+      setNotes(report.notes ?? "");
+      setLines(
+        report.lines.map((line) => ({
+          id: crypto.randomUUID(),
+          itemId: line.item.id,
+          sku: line.item.sku ?? "",
+          channel: line.channel,
+          quantitySoldUnits: String(line.quantitySoldUnits ?? 0),
+          sellingPricePerUnit:
+            line.sellingPricePerUnit !== null && line.sellingPricePerUnit !== undefined
+              ? Number(line.sellingPricePerUnit)
+              : undefined,
+        })),
+      );
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setLoadingReportId(null);
+    }
+  };
+
+  const handleDeleteReport = async (reportId: number) => {
+    if (!window.confirm("Delete this day-end report? Stock balances will be restored.")) {
+      return;
+    }
+    setDeleteInFlight(reportId);
+    try {
+      await api.delete(`/day-end-reports/${reportId}`);
+      toast.success("Report deleted");
+      if (editingReport?.id === reportId) {
+        resetForm();
+      }
+      setExpandedReportId((current) => (current === reportId ? null : current));
+      reportsQuery.refetch();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setDeleteInFlight(null);
+    }
+  };
+
   const handlePreview = async () => {
+    if (!canEdit) {
+      toast.error("View-only users cannot preview new reports");
+      return;
+    }
     const payloadLines = buildPayload();
     if (!payloadLines) return;
     setIsPreviewLoading(true);
@@ -188,17 +320,27 @@ export function DayEndPage() {
   };
 
   const handleSubmit = async () => {
+    if (!canEdit) {
+      toast.error("View-only users cannot save reports");
+      return;
+    }
     const payloadLines = buildPayload();
     if (!payloadLines) return;
     setIsSaving(true);
     try {
-      await api.post("/day-end-reports", {
+      const payload = {
         reportDate,
         beltMarkupRupees: beltMarkup ? Number(beltMarkup) : undefined,
         notes: notes || undefined,
         lines: payloadLines,
-      });
-      toast.success("Day-end report saved");
+      };
+      if (editingReport) {
+        await api.put(`/day-end-reports/${editingReport.id}`, payload);
+        toast.success("Day-end report updated");
+      } else {
+        await api.post("/day-end-reports", payload);
+        toast.success("Day-end report saved");
+      }
       resetForm();
       reportsQuery.refetch();
     } catch (error) {
@@ -230,7 +372,27 @@ export function DayEndPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1.8fr,1fr]">
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="grid gap-4 md:grid-cols-3">
+          {!canEdit && (
+            <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              You have read-only access. Ask an admin to capture or edit day-end reports.
+            </p>
+          )}
+          {isEditingExisting && editingReport && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+              <p>
+                Editing report for {dayjs(editingReport.reportDate).format("DD MMM YYYY")}
+              </p>
+              <button
+                type="button"
+                onClick={resetForm}
+                className="text-xs font-semibold text-brand-700 hover:underline"
+              >
+                Cancel edit
+              </button>
+            </div>
+          )}
+          <fieldset disabled={!canEdit} className={canEdit ? "" : "opacity-60"}>
+            <div className="grid gap-4 md:grid-cols-3">
             <div>
               <label className="text-xs font-medium text-slate-500">Report date</label>
               <input
@@ -266,7 +428,6 @@ export function DayEndPage() {
               />
             </div>
           </div>
-
           <div className="mt-6 space-y-4">
             {lines.map((line, idx) => {
               const linkedItem = line.itemId ? itemsById.get(line.itemId) : undefined;
@@ -418,6 +579,7 @@ export function DayEndPage() {
               {isSaving ? "Saving report…" : "Save day-end report"}
             </button>
           </div>
+          </fieldset>
         </div>
 
         <div className="space-y-6">
@@ -476,6 +638,99 @@ export function DayEndPage() {
           </div>
 
           <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+            <p className="text-base font-semibold text-slate-900">Import from Excel / CSV</p>
+            <p className="text-sm text-slate-500">
+              Upload day-end sales exported from POS. Columns: sku, channel, quantity_sold_units,
+              selling_price_per_unit (optional).
+            </p>
+            {!canEdit && (
+              <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                View-only users cannot import sales lines.
+              </p>
+            )}
+            <fieldset
+              disabled={!canEdit}
+              className={`mt-4 space-y-3 ${canEdit ? "" : "opacity-60"}`}
+            >
+              <input
+                type="file"
+                accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                onChange={handleImportFile}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-slate-500">
+                Need a template?{" "}
+                <a href="/samples/day-end-template.csv" download className="font-semibold text-brand-600 hover:underline">
+                  Download sample file
+                </a>
+              </p>
+              {importFileName && (
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Loaded: {importFileName}</span>
+                  <button type="button" onClick={clearImportPreview} className="font-semibold text-brand-600">
+                    Clear
+                  </button>
+                </div>
+              )}
+              {importPreview.length > 0 && (
+                <div className="space-y-3 text-sm text-slate-600">
+                  <div className="rounded-xl bg-slate-50 px-4 py-3">
+                    <p>
+                      Rows: <strong>{importSummary.rows}</strong> · Units:{" "}
+                      <strong>{formatNumber(importSummary.units)}</strong>
+                    </p>
+                    {importSummary.issues > 0 && (
+                      <p className="text-xs text-red-500">
+                        {importSummary.issues} rows have issues. Fix them in the sheet for best results.
+                      </p>
+                    )}
+                  </div>
+                  <div className="max-h-48 overflow-auto rounded-xl border border-slate-100 text-xs">
+                    <table className="min-w-full text-left">
+                      <thead className="bg-slate-50 text-[11px] uppercase text-slate-400">
+                        <tr>
+                          <th className="px-3 py-2">Row</th>
+                          <th className="px-3 py-2">SKU / Channel</th>
+                          <th className="px-3 py-2">Qty</th>
+                          <th className="px-3 py-2">Issues</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {importPreview.slice(0, 12).map((line) => (
+                          <tr key={`${line.row}-${line.payload.sku ?? line.rawName}`}>
+                            <td className="px-3 py-1">{line.row}</td>
+                            <td className="px-3 py-1">
+                              <p className="font-semibold text-slate-900">{line.payload.sku ?? "—"}</p>
+                              <p className="text-[11px] text-slate-500">{line.payload.channel}</p>
+                            </td>
+                            <td className="px-3 py-1">{line.payload.quantitySoldUnits}</td>
+                            <td className="px-3 py-1 text-red-500">
+                              {line.issues.length ? line.issues.join(", ") : "OK"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {importPreview.length > 12 && (
+                      <p className="px-3 py-2 text-[11px] text-slate-500">
+                        Showing first 12 rows of {importPreview.length}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={applyImportedLines}
+                    disabled={importSummary.issues > 0}
+                    className="w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+                  >
+                    Use lines in form
+                  </button>
+                </div>
+              )}
+            </fieldset>
+          </div>
+
+          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <p className="text-base font-semibold text-slate-900">Tips</p>
             <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-500">
               <li>Lines without a selling price inherit channel defaults.</li>
@@ -524,15 +779,39 @@ export function DayEndPage() {
                     </td>
                     <td className="py-3 text-slate-600">{report.lines.length}</td>
                     <td className="py-3 text-right text-xs">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedReportId((current) => (current === report.id ? null : report.id))
-                        }
-                        className="font-semibold text-brand-600 hover:underline"
-                      >
-                        {expandedReportId === report.id ? "Hide" : "View"}
-                      </button>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedReportId((current) => (current === report.id ? null : report.id))
+                          }
+                          className="font-semibold text-brand-600 hover:underline"
+                        >
+                          {expandedReportId === report.id ? "Hide" : "View"}
+                        </button>
+                        {canEdit ? (
+                          <>
+                            <span className="text-slate-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() => handleEditReport(report.id)}
+                              disabled={loadingReportId === report.id}
+                              className="font-semibold text-slate-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400"
+                            >
+                              {loadingReportId === report.id ? "Loading…" : "Edit"}
+                            </button>
+                            <span className="text-slate-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReport(report.id)}
+                              disabled={deleteInFlight === report.id}
+                              className="font-semibold text-red-500 hover:underline disabled:cursor-not-allowed disabled:text-red-300"
+                            >
+                              {deleteInFlight === report.id ? "Deleting…" : "Delete"}
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                   {expandedReportId === report.id && (

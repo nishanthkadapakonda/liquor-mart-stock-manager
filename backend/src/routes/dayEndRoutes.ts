@@ -2,8 +2,15 @@ import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../utils/asyncHandler";
 import { prisma } from "../prisma";
-import { createDayEndReport, previewDayEndReport } from "../services/dayEndReportService";
+import {
+  createDayEndReport,
+  deleteDayEndReport,
+  previewDayEndReport,
+  updateDayEndReport,
+} from "../services/dayEndReportService";
 import { SALES_CHANNELS } from "../types/domain";
+import { requireAdmin } from "../middleware/requireRole";
+import type { DayEndReportInput } from "../services/dayEndReportService";
 
 const router = Router();
 
@@ -21,6 +28,23 @@ const reportSchema = z.object({
   notes: z.string().optional(),
   lines: z.array(dayEndLineSchema).min(1),
 });
+
+function normalizeReportPayload(input: z.infer<typeof reportSchema>): DayEndReportInput {
+  const { beltMarkupRupees, notes, lines, ...rest } = input;
+  const normalizedLines: DayEndReportInput["lines"] = lines.map((line) => ({
+    channel: line.channel,
+    quantitySoldUnits: line.quantitySoldUnits,
+    ...(typeof line.itemId === "number" ? { itemId: line.itemId } : {}),
+    ...(line.sku ? { sku: line.sku } : {}),
+    ...(typeof line.sellingPricePerUnit === "number" ? { sellingPricePerUnit: line.sellingPricePerUnit } : {}),
+  }));
+  return {
+    ...rest,
+    lines: normalizedLines,
+    ...(typeof beltMarkupRupees === "number" ? { beltMarkupRupees } : {}),
+    ...(typeof notes === "string" && notes.trim() ? { notes } : {}),
+  };
+}
 
 router.get(
   "/",
@@ -72,8 +96,9 @@ router.get(
 
 router.post(
   "/preview",
+  requireAdmin,
   asyncHandler(async (req, res) => {
-    const payload = reportSchema.parse(req.body);
+    const payload = normalizeReportPayload(reportSchema.parse(req.body));
     const preview = await previewDayEndReport(payload);
     res.json(preview);
   }),
@@ -81,10 +106,32 @@ router.post(
 
 router.post(
   "/",
+  requireAdmin,
   asyncHandler(async (req, res) => {
-    const payload = reportSchema.parse(req.body);
+    const payload = normalizeReportPayload(reportSchema.parse(req.body));
     const result = await createDayEndReport(payload);
     res.status(201).json(result);
+  }),
+);
+
+router.put(
+  "/:id",
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const payload = normalizeReportPayload(reportSchema.parse(req.body));
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const result = await updateDayEndReport(Number(id), payload);
+    res.json(result);
+  }),
+);
+
+router.delete(
+  "/:id",
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    await deleteDayEndReport(Number(id));
+    res.status(204).send();
   }),
 );
 

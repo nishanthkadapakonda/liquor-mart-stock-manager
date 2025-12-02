@@ -11,6 +11,7 @@ import { dashboardRouter } from "./routes/dashboardRoutes";
 import { analyticsRouter } from "./routes/analyticsRoutes";
 import { settingsRouter } from "./routes/settingsRoutes";
 import { adjustmentRouter } from "./routes/adjustmentRoutes";
+import { userRouter } from "./routes/userRoutes";
 import { authMiddleware } from "./middleware/authMiddleware";
 import { errorHandler } from "./middleware/errorMiddleware";
 import { ensureBootstrapData } from "./services/bootstrapService";
@@ -40,6 +41,7 @@ async function bootstrap() {
   app.use("/api/analytics", authMiddleware, analyticsRouter);
   app.use("/api/settings", authMiddleware, settingsRouter);
   app.use("/api/adjustments", authMiddleware, adjustmentRouter);
+  app.use("/api/users", authMiddleware, userRouter);
 
   app.use(errorHandler);
 

@@ -1,7 +1,7 @@
-import type { AnyZodObject } from "zod";
+import type { ZodTypeAny } from "zod";
 import { ZodError } from "zod";
 
-export function validate<T extends AnyZodObject>(schema: T, data: unknown) {
+export function validate<T extends ZodTypeAny>(schema: T, data: unknown) {
   try {
     return schema.parse(data);
   } catch (error) {
