@@ -17,6 +17,7 @@ const purchaseLineSchema = z.object({
   productType: z.string().optional(),
   sizeCode: z.string().optional(),
   packType: z.string().optional(),
+  packSizeLabel: z.string().optional(),
   unitsPerPack: z.number().int().positive().optional(),
   category: z.string().optional(),
   volumeMl: z.number().int().nonnegative().optional(),
@@ -47,6 +48,7 @@ function normalizeLineItems(items: z.infer<typeof purchaseSchema>["lineItems"]):
       productType,
       sizeCode,
       packType,
+      packSizeLabel,
       unitsPerPack,
       category,
       volumeMl,
@@ -65,6 +67,7 @@ function normalizeLineItems(items: z.infer<typeof purchaseSchema>["lineItems"]):
       ...(productType ? { productType: productType.trim() } : {}),
       ...(sizeCode ? { sizeCode: sizeCode.trim() } : {}),
       ...(packType ? { packType: packType.trim() } : {}),
+      ...(packSizeLabel ? { packSizeLabel } : {}),
       ...(typeof unitsPerPack === "number" ? { unitsPerPack } : {}),
       ...(category ? { category } : {}),
       ...(volumeMl !== undefined ? { volumeMl } : {}),
@@ -100,7 +103,12 @@ router.get(
 
     const formatted = purchases.map((purchase) => {
       const totalQuantity = purchase.lineItems.reduce((sum, l) => sum + l.quantityUnits, 0);
-      const totalCost = purchase.lineItems.reduce((sum, l) => sum + Number(l.unitCostPrice) * l.quantityUnits, 0);
+      const totalCost = purchase.lineItems.reduce((sum, l) => {
+        const lineCost = l.lineTotalPrice
+          ? Number(l.lineTotalPrice)
+          : Number(l.unitCostPrice) * l.quantityUnits;
+        return sum + lineCost;
+      }, 0);
       return { ...purchase, totalQuantity, totalCost };
     });
 

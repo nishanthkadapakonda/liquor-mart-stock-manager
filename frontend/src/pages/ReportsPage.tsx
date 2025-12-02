@@ -327,7 +327,9 @@ export function ReportsPage() {
         normalizedSearch
           ? item.name.toLowerCase().includes(normalizedSearch) ||
             item.sku.toLowerCase().includes(normalizedSearch) ||
-            (item.brand ?? "").toLowerCase().includes(normalizedSearch)
+            (item.brand ?? "").toLowerCase().includes(normalizedSearch) ||
+            (item.brandNumber ?? "").toLowerCase().includes(normalizedSearch) ||
+            (item.sizeCode ?? "").toLowerCase().includes(normalizedSearch)
           : true,
       )
       .sort((a, b) => b.currentStockUnits - a.currentStockUnits);
@@ -414,10 +416,28 @@ export function ReportsPage() {
       toast.error("No inventory data to export");
       return;
     }
-    const headers = ["SKU", "Item", "Brand", "Category", "MRP", "Current stock", "Reorder level"];
+    const headers = [
+      "SKU",
+      "Brand number",
+      "Item",
+      "Product type",
+      "Size code",
+      "Pack label",
+      "Units per pack",
+      "Brand",
+      "Category",
+      "MRP",
+      "Current stock",
+      "Reorder level",
+    ];
     const rows = inventoryRows.map((item) => [
       item.sku,
+      item.brandNumber ?? "",
       item.name,
+      item.productType ?? "",
+      item.sizeCode ?? "",
+      item.packSizeLabel ?? "",
+      item.unitsPerPack ?? "",
       item.brand ?? "",
       item.category ?? "",
       Number(item.mrpPrice ?? 0),
@@ -1206,7 +1226,7 @@ export function ReportsPage() {
               type="text"
               value={inventorySearch}
               onChange={(e) => setInventorySearch(e.target.value)}
-              placeholder="Search SKU, name, brand…"
+              placeholder="Search SKU, name, brand, code…"
               className="w-full rounded-full border border-slate-200 px-4 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 sm:w-64"
             />
             <button
@@ -1238,8 +1258,9 @@ export function ReportsPage() {
               <tr>
                 <th className="py-2">SKU</th>
                 <th className="py-2">Item</th>
-                <th className="py-2">Brand</th>
-                <th className="py-2">Category</th>
+                <th className="py-2">Brand #</th>
+                <th className="py-2">Product type</th>
+                <th className="py-2">Pack</th>
                 <th className="py-2 text-right">MRP</th>
                 <th className="py-2 text-right">Stock</th>
                 <th className="py-2 text-right">Reorder</th>
@@ -1251,10 +1272,18 @@ export function ReportsPage() {
                   <td className="py-3 font-semibold text-slate-900">{item.sku}</td>
                   <td className="py-3">
                     <p className="font-semibold text-slate-900">{item.name}</p>
-                    <p className="text-xs text-slate-500">{item.volumeMl ? `${item.volumeMl} ml` : ""}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.volumeMl ? `${item.volumeMl} ml` : ""} {item.brand ? `• ${item.brand}` : ""}
+                    </p>
                   </td>
-                  <td className="py-3 text-slate-600">{item.brand ?? "—"}</td>
-                  <td className="py-3 text-slate-600">{item.category ?? "—"}</td>
+                  <td className="py-3 text-slate-600">{item.brandNumber ?? "—"}</td>
+                  <td className="py-3 text-slate-600">{item.productType ?? item.category ?? "—"}</td>
+                  <td className="py-3 text-slate-600">
+                    <p>{item.packSizeLabel ?? (item.unitsPerPack ? `${item.unitsPerPack} units` : "—")}</p>
+                    <p className="text-xs uppercase text-slate-400">
+                      {item.sizeCode ?? "—"} {item.packType ? `• ${item.packType}` : ""}
+                    </p>
+                  </td>
                   <td className="py-3 text-right text-slate-600">{formatCurrency(Number(item.mrpPrice ?? 0))}</td>
                   <td className="py-3 text-right font-semibold text-slate-900">{formatNumber(item.currentStockUnits)}</td>
                   <td className="py-3 text-right text-slate-600">{item.reorderLevel ?? "—"}</td>

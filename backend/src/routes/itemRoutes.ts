@@ -10,7 +10,13 @@ const router = Router();
 const baseItemSchema = z.object({
   sku: z.string().min(2),
   name: z.string().min(2),
+  brandNumber: z.string().optional(),
   brand: z.string().optional(),
+  productType: z.string().optional(),
+  sizeCode: z.string().optional(),
+  packType: z.string().optional(),
+  unitsPerPack: z.number().int().positive().optional(),
+  packSizeLabel: z.string().optional(),
   category: z.string().optional(),
   volumeMl: z.number().int().nonnegative().optional(),
   mrpPrice: z.number().nonnegative(),
@@ -67,7 +73,13 @@ router.post(
     const {
       sku,
       name,
+      brandNumber,
       brand,
+      productType,
+      sizeCode,
+      packType,
+      unitsPerPack,
+      packSizeLabel,
       category,
       volumeMl,
       mrpPrice,
@@ -81,7 +93,13 @@ router.post(
         data: {
           sku,
           name,
+        brandNumber: brandNumber ?? null,
           brand: brand ?? null,
+        productType: productType ?? null,
+        sizeCode: sizeCode ?? null,
+        packType: packType ?? null,
+        unitsPerPack: unitsPerPack ?? null,
+        packSizeLabel: packSizeLabel ?? null,
           category: category ?? null,
           volumeMl: volumeMl ?? null,
           currentStockUnits: currentStockUnits ?? 0,
@@ -109,7 +127,21 @@ router.put(
   asyncHandler(async (req, res) => {
     const payload = baseItemSchema.partial().parse(req.body);
     const { id } = z.object({ id: z.string() }).parse(req.params);
-    const { mrpPrice, purchaseCostPrice, brand, category, volumeMl, reorderLevel, ...rest } = payload;
+    const {
+      mrpPrice,
+      purchaseCostPrice,
+      brandNumber,
+      brand,
+      productType,
+      sizeCode,
+      packType,
+      unitsPerPack,
+      packSizeLabel,
+      category,
+      volumeMl,
+      reorderLevel,
+      ...rest
+    } = payload;
     const data: Prisma.ItemUpdateInput = {};
     if (rest.sku !== undefined) {
       data.sku = rest.sku;
@@ -123,8 +155,26 @@ router.put(
     if (rest.isActive !== undefined) {
       data.isActive = rest.isActive;
     }
+    if (brandNumber !== undefined) {
+      data.brandNumber = brandNumber ?? null;
+    }
     if (brand !== undefined) {
       data.brand = brand ?? null;
+    }
+    if (productType !== undefined) {
+      data.productType = productType ?? null;
+    }
+    if (sizeCode !== undefined) {
+      data.sizeCode = sizeCode ?? null;
+    }
+    if (packType !== undefined) {
+      data.packType = packType ?? null;
+    }
+    if (unitsPerPack !== undefined) {
+      data.unitsPerPack = unitsPerPack ?? null;
+    }
+    if (packSizeLabel !== undefined) {
+      data.packSizeLabel = packSizeLabel ?? null;
     }
     if (category !== undefined) {
       data.category = category ?? null;
