@@ -8,11 +8,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  VIEWER
+}
+
 model AdminUser {
   id           Int      @id @default(autoincrement())
   email        String   @unique
   passwordHash String
   name         String?
+  role         UserRole @default(ADMIN)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

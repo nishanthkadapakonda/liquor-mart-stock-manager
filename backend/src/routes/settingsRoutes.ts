@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { asyncHandler } from "../utils/asyncHandler";
+import { requireAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.get(
 
 router.put(
   "/",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const payload = settingsSchema.parse(req.body);
     const data: Prisma.SettingUpdateInput = {};

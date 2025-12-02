@@ -34,8 +34,8 @@ export async function createPurchase(input: PurchaseInput) {
     const purchase = await tx.purchase.create({
       data: {
         purchaseDate: purchaseDateValue,
-        supplierName: input.supplierName,
-        notes: input.notes,
+        supplierName: input.supplierName ?? null,
+        notes: input.notes ?? null,
       },
     });
 
@@ -117,8 +117,8 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
       where: { id: purchaseId },
       data: {
         purchaseDate: purchaseDateValue,
-        supplierName: input.supplierName,
-        notes: input.notes,
+        supplierName: input.supplierName ?? null,
+        notes: input.notes ?? null,
       },
     });
 
@@ -276,12 +276,12 @@ async function resolveItem(
     data: {
       sku: line.sku,
       name: line.name,
-      brand: line.brand,
-      category: line.category,
-      volumeMl: line.volumeMl,
+      brand: line.brand ?? null,
+      category: line.category ?? null,
+      volumeMl: line.volumeMl ?? null,
       mrpPrice: new Prisma.Decimal(line.mrpPrice),
       purchaseCostPrice: new Prisma.Decimal(line.unitCostPrice),
-      reorderLevel: line.reorderLevel,
+      reorderLevel: line.reorderLevel ?? null,
       isActive: line.isActive ?? true,
     },
   });

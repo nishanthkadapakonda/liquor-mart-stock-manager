@@ -22,6 +22,7 @@ export async function ensureBootstrapData() {
         email: env.adminEmail,
         passwordHash,
         name: "Admin",
+        role: "ADMIN",
       },
     });
   }

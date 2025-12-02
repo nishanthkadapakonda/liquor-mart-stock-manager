@@ -6,7 +6,9 @@ import {
   ClipboardList,
   BarChart3,
   Settings,
+  Users,
 } from "lucide-react";
+import { useAuth } from "../../providers/AuthProvider";
 
 const navItems = [
   { label: "Dashboard", path: "/", icon: LayoutDashboard },
@@ -15,9 +17,13 @@ const navItems = [
   { label: "Day-End Sales", path: "/day-end", icon: ClipboardList },
   { label: "Reports & Analytics", path: "/reports", icon: BarChart3 },
   { label: "Settings", path: "/settings", icon: Settings },
-];
+  { label: "User Access", path: "/users", icon: Users, adminOnly: true },
+] as const;
 
 export function Sidebar() {
+  const { user } = useAuth();
+  const canSeeAdminLinks = user?.role === "ADMIN";
+
   return (
     <aside className="hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
       <div className="flex items-center gap-3 px-6 py-6">
@@ -31,7 +37,9 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-3">
-        {navItems.map((item) => {
+        {navItems
+          .filter((item) => (item.adminOnly ? canSeeAdminLinks : true))
+          .map((item) => {
           const Icon = item.icon;
           return (
             <NavLink

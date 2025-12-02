@@ -6,6 +6,7 @@ import { api, getErrorMessage } from "../api/client";
 import type { Purchase } from "../api/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { parsePurchaseUpload, type ParsedLine } from "../utils/fileParsers";
+import { useAuth } from "../providers/AuthProvider";
 
 interface ManualLine {
   id: string;
@@ -63,6 +64,8 @@ function buildDateRange(days: number) {
 }
 
 export function PurchasesPage() {
+  const { user } = useAuth();
+  const canEdit = user?.role === "ADMIN";
   const [purchaseDate, setPurchaseDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [supplierName, setSupplierName] = useState("");
   const [notes, setNotes] = useState("");
@@ -336,123 +339,133 @@ export function PurchasesPage() {
               Updating record from {dayjs(editingPurchase.purchaseDate).format("DD MMM YYYY")}
             </p>
           )}
-          <div className="mt-4 flex flex-col gap-4 lg:flex-row">
-            <div className="flex-1">
-              <label className="text-xs font-medium text-slate-500">Purchase date</label>
-              <input
-                type="date"
-                value={purchaseDate}
-                onChange={(e) => setPurchaseDate(e.target.value)}
+          {!canEdit && (
+            <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              You are in view-only mode. Admins can add or edit purchase records.
+            </p>
+          )}
+          <fieldset
+            disabled={!canEdit}
+            className={canEdit ? "" : "mt-4 cursor-not-allowed opacity-60"}
+          >
+            <div className="mt-4 flex flex-col gap-4 lg:flex-row">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-slate-500">Purchase date</label>
+                <input
+                  type="date"
+                  value={purchaseDate}
+                  onChange={(e) => setPurchaseDate(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                  required
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-medium text-slate-500">Supplier (optional)</label>
+                <input
+                  type="text"
+                  value={supplierName}
+                  onChange={(e) => setSupplierName(e.target.value)}
+                  placeholder="Metro Liquor Suppliers"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                />
+              </div>
+            </div>
+            <div className="mt-4">
+              <label className="text-xs font-medium text-slate-500">Internal notes</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Invoice reference, payment terms, etc."
+                rows={2}
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-                required
               />
             </div>
-            <div className="flex-1">
-              <label className="text-xs font-medium text-slate-500">Supplier (optional)</label>
-              <input
-                type="text"
-                value={supplierName}
-                onChange={(e) => setSupplierName(e.target.value)}
-                placeholder="Metro Liquor Suppliers"
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-              />
-            </div>
-          </div>
-          <div className="mt-4">
-            <label className="text-xs font-medium text-slate-500">Internal notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Invoice reference, payment terms, etc."
-              rows={2}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
-            />
-          </div>
 
-          <div className="mt-4 space-y-3">
-            {manualLines.map((line, idx) => (
-              <div key={line.id} className="grid gap-3 rounded-2xl border border-slate-100 p-3 md:grid-cols-5">
-                <div className="md:col-span-2">
-                  <label className="text-xs text-slate-500">SKU / Item name</label>
-                  <div className="mt-1 flex gap-2">
+            <div className="mt-4 space-y-3">
+              {manualLines.map((line, idx) => (
+                <div key={line.id} className="grid gap-3 rounded-2xl border border-slate-100 p-3 md:grid-cols-5">
+                  <div className="md:col-span-2">
+                    <label className="text-xs text-slate-500">SKU / Item name</label>
+                    <div className="mt-1 flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="SKU"
+                        value={line.sku}
+                        onChange={(e) => handleManualChange(line.id, "sku", e.target.value)}
+                        className="w-1/2 rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Name"
+                        value={line.name}
+                        onChange={(e) => handleManualChange(line.id, "name", e.target.value)}
+                        className="w-1/2 rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Quantity</label>
                     <input
-                      type="text"
-                      placeholder="SKU"
-                      value={line.sku}
-                      onChange={(e) => handleManualChange(line.id, "sku", e.target.value)}
-                      className="w-1/2 rounded-lg border border-slate-200 px-2 py-2"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Name"
-                      value={line.name}
-                      onChange={(e) => handleManualChange(line.id, "name", e.target.value)}
-                      className="w-1/2 rounded-lg border border-slate-200 px-2 py-2"
+                      type="number"
+                      min={0}
+                      value={line.quantityUnits}
+                      onChange={(e) => handleManualChange(line.id, "quantityUnits", e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      required
                     />
                   </div>
+                  <div>
+                    <label className="text-xs text-slate-500">MRP</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={line.mrpPrice}
+                      onChange={(e) => handleManualChange(line.id, "mrpPrice", e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Cost</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={line.unitCostPrice}
+                      onChange={(e) => handleManualChange(line.id, "unitCostPrice", e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                    />
+                  </div>
+                  {manualLines.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setManualLines((prev) => prev.filter((entry) => entry.id !== line.id))
+                      }
+                      className="text-xs font-semibold text-red-500"
+                    >
+                      Remove line {idx + 1}
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <label className="text-xs text-slate-500">Quantity</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={line.quantityUnits}
-                    onChange={(e) => handleManualChange(line.id, "quantityUnits", e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-500">MRP</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={line.mrpPrice}
-                    onChange={(e) => handleManualChange(line.id, "mrpPrice", e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-500">Cost</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={line.unitCostPrice}
-                    onChange={(e) => handleManualChange(line.id, "unitCostPrice", e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
-                  />
-                </div>
-                {manualLines.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setManualLines((prev) => prev.filter((entry) => entry.id !== line.id))
-                    }
-                    className="text-xs font-semibold text-red-500"
-                  >
-                    Remove line {idx + 1}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+              <button
+                type="button"
+                onClick={() => setManualLines((prev) => [...prev, emptyLine()])}
+                className="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700"
+              >
+                + Add line
+              </button>
+              <span>Total quantity: {formatNumber(manualTotal)}</span>
+            </div>
             <button
-              type="button"
-              onClick={() => setManualLines((prev) => [...prev, emptyLine()])}
-              className="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700"
+              type="submit"
+              className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
             >
-              + Add line
+              {editingPurchase ? "Update purchase" : "Save purchase"}
             </button>
-            <span>Total quantity: {formatNumber(manualTotal)}</span>
-          </div>
-          <button
-            type="submit"
-            className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500"
-          >
-            {editingPurchase ? "Update purchase" : "Save purchase"}
-          </button>
+          </fieldset>
         </form>
 
         <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-5 shadow-sm">
@@ -460,7 +473,15 @@ export function PurchasesPage() {
           <p className="text-sm text-slate-500">
             Columns: sku, item_name, quantity_units, mrp_price, unit_cost_price, brand, category
           </p>
-          <div className="mt-4 space-y-3">
+          {!canEdit && (
+            <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              Only admins can upload purchase spreadsheets.
+            </p>
+          )}
+          <fieldset
+            disabled={!canEdit}
+            className={`mt-4 space-y-3 ${canEdit ? "" : "cursor-not-allowed opacity-60"}`}
+          >
             <input
               type="file"
               accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
@@ -500,61 +521,61 @@ export function PurchasesPage() {
                 />
               </div>
             </div>
-          </div>
-          {importPreview && importPreview.length > 0 && (
-            <div className="mt-4 space-y-3">
-              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <p>
-                  Rows: <strong>{importPreview.length}</strong>, Units total:{" "}
-                  <strong>{formatNumber(importSummary.quantity)}</strong>
-                </p>
-                {importSummary.linesWithIssues > 0 && (
-                  <p className="text-red-500">
-                    {importSummary.linesWithIssues} rows need attention before import.
+            {importPreview && importPreview.length > 0 && (
+              <div className="space-y-3">
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <p>
+                    Rows: <strong>{importPreview.length}</strong>, Units total:{" "}
+                    <strong>{formatNumber(importSummary.quantity)}</strong>
                   </p>
-                )}
-              </div>
-              <div className="max-h-72 overflow-auto rounded-xl border border-slate-100">
-                <table className="min-w-full text-xs">
-                  <thead className="bg-slate-50 text-left uppercase text-slate-400">
-                    <tr>
-                      <th className="px-3 py-2">Row</th>
-                      <th className="px-3 py-2">SKU / Item</th>
-                      <th className="px-3 py-2">Qty</th>
-                      <th className="px-3 py-2">MRP</th>
-                      <th className="px-3 py-2">Issues</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {importPreview.map((line) => (
-                      <tr key={`${line.row}-${line.payload.sku ?? line.rawName}`}>
-                        <td className="px-3 py-2">{line.row}</td>
-                        <td className="px-3 py-2">
-                          <p className="font-semibold text-slate-900">
-                            {line.payload.sku ?? "—"}
-                          </p>
-                          <p className="text-[11px] text-slate-500">{line.rawName}</p>
-                        </td>
-                        <td className="px-3 py-2">{line.payload.quantityUnits}</td>
-                        <td className="px-3 py-2">₹{line.payload.mrpPrice}</td>
-                        <td className="px-3 py-2 text-red-500">
-                          {line.issues.length ? line.issues.join(", ") : "OK"}
-                        </td>
+                  {importSummary.linesWithIssues > 0 && (
+                    <p className="text-red-500">
+                      {importSummary.linesWithIssues} rows need attention before import.
+                    </p>
+                  )}
+                </div>
+                <div className="max-h-72 overflow-auto rounded-xl border border-slate-100">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-slate-50 text-left uppercase text-slate-400">
+                      <tr>
+                        <th className="px-3 py-2">Row</th>
+                        <th className="px-3 py-2">SKU / Item</th>
+                        <th className="px-3 py-2">Qty</th>
+                        <th className="px-3 py-2">MRP</th>
+                        <th className="px-3 py-2">Issues</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {importPreview.map((line) => (
+                        <tr key={`${line.row}-${line.payload.sku ?? line.rawName}`}>
+                          <td className="px-3 py-2">{line.row}</td>
+                          <td className="px-3 py-2">
+                            <p className="font-semibold text-slate-900">
+                              {line.payload.sku ?? "—"}
+                            </p>
+                            <p className="text-[11px] text-slate-500">{line.rawName}</p>
+                          </td>
+                          <td className="px-3 py-2">{line.payload.quantityUnits}</td>
+                          <td className="px-3 py-2">₹{line.payload.mrpPrice}</td>
+                          <td className="px-3 py-2 text-red-500">
+                            {line.issues.length ? line.issues.join(", ") : "OK"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleImportSubmit}
+                  disabled={importSummary.linesWithIssues > 0}
+                  className="w-full rounded-xl bg-slate-900 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Confirm import
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={handleImportSubmit}
-                disabled={importSummary.linesWithIssues > 0}
-                className="w-full rounded-xl bg-slate-900 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                Confirm import
-              </button>
-            </div>
-          )}
+            )}
+          </fieldset>
         </div>
       </div>
 
@@ -675,22 +696,28 @@ export function PurchasesPage() {
                           >
                             {expandedPurchaseId === purchase.id ? "Hide" : "View"}
                           </button>
-                          <span className="text-slate-300">|</span>
-                          <button
-                            type="button"
-                            onClick={() => handleEditPurchase(purchase.id)}
-                            className="font-semibold text-slate-600 hover:underline"
-                          >
-                            Edit
-                          </button>
-                          <span className="text-slate-300">|</span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePurchase(purchase.id)}
-                            className="font-semibold text-red-500 hover:underline"
-                          >
-                            Delete
-                          </button>
+                          {canEdit ? (
+                            <>
+                              <span className="text-slate-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => handleEditPurchase(purchase.id)}
+                                className="font-semibold text-slate-600 hover:underline"
+                              >
+                                Edit
+                              </button>
+                              <span className="text-slate-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePurchase(purchase.id)}
+                                className="font-semibold text-red-500 hover:underline"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-slate-400">View only</span>
+                          )}
                         </div>
                       </td>
                     </tr>

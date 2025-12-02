@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { api, getErrorMessage } from "../api/client";
 import type { Item } from "../api/types";
 import { formatNumber } from "../utils/formatters";
+import { useAuth } from "../providers/AuthProvider";
 
 const emptyItemForm = {
   sku: "",
@@ -17,6 +18,8 @@ const emptyItemForm = {
 };
 
 export function ItemsPage() {
+  const { user } = useAuth();
+  const canEdit = user?.role === "ADMIN";
   const [search, setSearch] = useState("");
   const [form, setForm] = useState(() => ({ ...emptyItemForm }));
   const [editingItem, setEditingItem] = useState<Item | null>(null);
@@ -169,7 +172,15 @@ export function ItemsPage() {
           {isEditing && editingItem && (
             <p className="mt-1 text-xs text-slate-500">Updating SKU {editingItem.sku}</p>
           )}
-          <div className="mt-4 space-y-4 text-sm">
+          {!canEdit && (
+            <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              You have read-only access. Ask an admin if you need to add or edit stock items.
+            </p>
+          )}
+          <fieldset
+            disabled={!canEdit}
+            className={`mt-4 space-y-4 text-sm ${canEdit ? "" : "cursor-not-allowed opacity-60"}`}
+          >
             {Object.entries({
               sku: "SKU",
               name: "Name",
@@ -196,16 +207,16 @@ export function ItemsPage() {
                 />
               </div>
             ))}
-          </div>
-          <button
-            type="submit"
-            className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500"
-          >
-            {isEditing ? "Update item" : "Save item"}
-          </button>
-          <p className="mt-2 text-xs text-slate-400">
-            Creating a purchase will increase stock automatically.
-          </p>
+            <button
+              type="submit"
+              className="w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+            >
+              {isEditing ? "Update item" : "Save item"}
+            </button>
+            <p className="text-xs text-slate-400">
+              Creating a purchase will increase stock automatically.
+            </p>
+          </fieldset>
         </form>
 
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
@@ -250,21 +261,27 @@ export function ItemsPage() {
                       {item.reorderLevel ?? lowStockQuery.data?.threshold ?? 10}
                     </td>
                     <td className="py-3 text-right text-xs">
-                      <button
-                        type="button"
-                        onClick={() => handleEdit(item)}
-                        className="font-semibold text-brand-600 hover:underline"
-                      >
-                        Edit
-                      </button>
-                      <span className="px-1 text-slate-300">|</span>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(item)}
-                        className="font-semibold text-red-500 hover:underline"
-                      >
-                        Delete
-                      </button>
+                      {canEdit ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(item)}
+                            className="font-semibold text-brand-600 hover:underline"
+                          >
+                            Edit
+                          </button>
+                          <span className="px-1 text-slate-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(item)}
+                            className="font-semibold text-red-500 hover:underline"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-slate-400">View only</span>
+                      )}
                     </td>
                   </tr>
                 ))}

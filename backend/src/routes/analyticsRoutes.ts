@@ -20,18 +20,22 @@ router.get(
   "/time-series",
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = dateRangeQuery.parse(req.query);
+    const range = {
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+    };
     const channelParam = typeof req.query.channel === "string" ? req.query.channel.toUpperCase() : undefined;
     const channel =
       channelParam === "ALL" || channelParam === undefined
         ? channelParam
         : (channelParam as SalesChannel);
     const metric = req.query.metric === "units" ? "units" : "revenue";
-    const series = await getSalesTimeSeries({
-      startDate,
-      endDate,
-      channel,
+    const params: Parameters<typeof getSalesTimeSeries>[0] = {
+      ...range,
       metric,
-    });
+      ...(channel ? { channel } : {}),
+    };
+    const series = await getSalesTimeSeries(params);
     res.json(series);
   }),
 );
@@ -40,11 +44,14 @@ router.get(
   "/top-items",
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = dateRangeQuery.parse(req.query);
+    const range = {
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+    };
     const limit = req.query.limit ? Number(req.query.limit) : 10;
     const sort = req.query.sort === "revenue" ? "revenue" : "units";
     const data = await getTopItems({
-      startDate,
-      endDate,
+      ...range,
       limit,
       sort,
     });
@@ -56,7 +63,11 @@ router.get(
   "/velocity",
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = dateRangeQuery.parse(req.query);
-    const data = await getVelocity({ startDate, endDate });
+    const range = {
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+    };
+    const data = await getVelocity(range);
     res.json(data);
   }),
 );
@@ -65,7 +76,11 @@ router.get(
   "/daily-performance",
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = dateRangeQuery.parse(req.query);
-    const data = await getDailyPerformance({ startDate, endDate });
+    const range = {
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+    };
+    const data = await getDailyPerformance(range);
     res.json(data);
   }),
 );

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { api, getErrorMessage } from "../api/client";
 import type { AppSettings, SettingsPayload } from "../api/types";
+import { useAuth } from "../providers/AuthProvider";
 
 const recommendedSettings = {
   defaultBeltMarkupRupees: 20,
@@ -10,6 +11,8 @@ const recommendedSettings = {
 };
 
 export function SettingsPage() {
+  const { user } = useAuth();
+  const canEdit = user?.role === "ADMIN";
   const [beltMarkup, setBeltMarkup] = useState("");
   const [lowStockThreshold, setLowStockThreshold] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -86,11 +89,20 @@ export function SettingsPage() {
             type="button"
             onClick={handleReset}
             className="text-xs font-semibold text-brand-600 hover:underline"
+            disabled={!canEdit}
           >
             Use recommended values
           </button>
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+        {!canEdit && (
+          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            Viewers can see, but not edit, default settings.
+          </p>
+        )}
+        <fieldset
+          disabled={!canEdit}
+          className={`mt-4 grid gap-4 md:grid-cols-2 ${canEdit ? "" : "cursor-not-allowed opacity-60"}`}
+        >
           <div>
             <label className="text-xs font-medium text-slate-500">Default belt markup (₹)</label>
             <input
@@ -121,10 +133,10 @@ export function SettingsPage() {
               Used for low stock alerts unless an item-specific reorder level is set.
             </p>
           </div>
-        </div>
+        </fieldset>
         <button
           type="submit"
-          disabled={isSaving}
+          disabled={isSaving || !canEdit}
           className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
         >
           {isSaving ? "Saving…" : "Save defaults"}

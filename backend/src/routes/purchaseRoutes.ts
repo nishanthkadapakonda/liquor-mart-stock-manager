@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "../prisma";
 import { asyncHandler } from "../utils/asyncHandler";
 import { createPurchase, deletePurchase, updatePurchase } from "../services/purchaseService";
+import type { PurchaseLineInput } from "../services/purchaseService";
+import { requireAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
@@ -27,6 +29,23 @@ const purchaseSchema = z.object({
   allowItemCreation: z.boolean().optional(),
   lineItems: z.array(purchaseLineSchema).min(1),
 });
+
+function normalizeLineItems(items: z.infer<typeof purchaseSchema>["lineItems"]): PurchaseLineInput[] {
+  return items.map((line) => {
+    const { itemId, sku, name, brand, category, volumeMl, reorderLevel, isActive, ...rest } = line;
+    return {
+      ...rest,
+      ...(typeof itemId === "number" ? { itemId } : {}),
+      ...(sku ? { sku } : {}),
+      ...(name ? { name } : {}),
+      ...(brand ? { brand } : {}),
+      ...(category ? { category } : {}),
+      ...(volumeMl !== undefined ? { volumeMl } : {}),
+      ...(reorderLevel !== undefined ? { reorderLevel } : {}),
+      ...(typeof isActive === "boolean" ? { isActive } : {}),
+    };
+  });
+}
 
 router.get(
   "/",
@@ -78,34 +97,56 @@ router.get(
 
 router.post(
   "/",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const payload = purchaseSchema.parse(req.body);
-    const result = await createPurchase(payload);
+    const result = await createPurchase({
+      purchaseDate: payload.purchaseDate,
+      lineItems: normalizeLineItems(payload.lineItems),
+      ...(payload.allowItemCreation !== undefined ? { allowItemCreation: payload.allowItemCreation } : {}),
+      ...(payload.supplierName ? { supplierName: payload.supplierName } : {}),
+      ...(payload.notes ? { notes: payload.notes } : {}),
+    });
     res.status(201).json(result);
   }),
 );
 
 router.post(
   "/import",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const payload = purchaseSchema.parse(req.body);
-    const result = await createPurchase({ ...payload, allowItemCreation: true });
+    const result = await createPurchase({
+      purchaseDate: payload.purchaseDate,
+      lineItems: normalizeLineItems(payload.lineItems),
+      allowItemCreation: true,
+      ...(payload.supplierName ? { supplierName: payload.supplierName } : {}),
+      ...(payload.notes ? { notes: payload.notes } : {}),
+    });
     res.status(201).json(result);
   }),
 );
 
 router.put(
   "/:id",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const payload = purchaseSchema.parse(req.body);
     const { id } = z.object({ id: z.string() }).parse(req.params);
-    const result = await updatePurchase(Number(id), payload);
+    const result = await updatePurchase(Number(id), {
+      purchaseDate: payload.purchaseDate,
+      lineItems: normalizeLineItems(payload.lineItems),
+      ...(payload.allowItemCreation !== undefined ? { allowItemCreation: payload.allowItemCreation } : {}),
+      ...(payload.supplierName ? { supplierName: payload.supplierName } : {}),
+      ...(payload.notes ? { notes: payload.notes } : {}),
+    });
     res.json(result);
   }),
 );
 
 router.delete(
   "/:id",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
     await deletePurchase(Number(id));

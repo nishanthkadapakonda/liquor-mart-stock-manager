@@ -16,3 +16,18 @@ export function ProtectedRoute() {
 
   return <Outlet />;
 }
+
+export function AdminRoute() {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return <FullScreenLoader />;
+  }
+
+  if (!user || user.role !== "ADMIN") {
+    return <Navigate to="/" replace state={{ from: location }} />;
+  }
+
+  return <Outlet />;
+}

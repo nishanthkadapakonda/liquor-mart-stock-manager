@@ -8,10 +8,11 @@ router.get(
   "/summary",
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.query;
-    const metrics = await getDashboardMetrics({
-      startDate: startDate ? String(startDate) : undefined,
-      endDate: endDate ? String(endDate) : undefined,
-    });
+    const range = {
+      ...(startDate ? { startDate: String(startDate) } : {}),
+      ...(endDate ? { endDate: String(endDate) } : {}),
+    };
+    const metrics = await getDashboardMetrics(range);
     res.json(metrics);
   }),
 );

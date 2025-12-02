@@ -5,10 +5,13 @@ export interface AppSettings {
   defaultLowStockThreshold?: number | null;
 }
 
+export type UserRole = "ADMIN" | "VIEWER";
+
 export interface AdminUser {
   id: number;
   email: string;
   name?: string | null;
+  role: UserRole;
 }
 
 export interface Item {

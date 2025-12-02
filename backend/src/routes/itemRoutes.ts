@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { asyncHandler } from "../utils/asyncHandler";
+import { requireAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
@@ -60,15 +61,34 @@ router.get(
 
 router.post(
   "/",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const payload = baseItemSchema.parse(req.body);
-    const { mrpPrice, purchaseCostPrice, ...rest } = payload;
+    const {
+      sku,
+      name,
+      brand,
+      category,
+      volumeMl,
+      mrpPrice,
+      purchaseCostPrice,
+      currentStockUnits,
+      reorderLevel,
+      isActive,
+    } = payload;
     const item = await prisma.item.create({
       data: {
-        ...rest,
+        sku,
+        name,
+        brand: brand ?? null,
+        category: category ?? null,
+        volumeMl: volumeMl ?? null,
+        currentStockUnits: currentStockUnits ?? 0,
+        reorderLevel: reorderLevel ?? null,
+        isActive: isActive ?? true,
         mrpPrice: new Prisma.Decimal(mrpPrice),
         purchaseCostPrice:
-          purchaseCostPrice !== undefined ? new Prisma.Decimal(purchaseCostPrice) : undefined,
+          purchaseCostPrice !== undefined ? new Prisma.Decimal(purchaseCostPrice) : null,
       },
     });
     res.status(201).json({ item });
@@ -77,19 +97,45 @@ router.post(
 
 router.put(
   "/:id",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const payload = baseItemSchema.partial().parse(req.body);
     const { id } = z.object({ id: z.string() }).parse(req.params);
-    const { mrpPrice, purchaseCostPrice, ...rest } = payload;
+    const { mrpPrice, purchaseCostPrice, brand, category, volumeMl, reorderLevel, ...rest } = payload;
+    const data: Prisma.ItemUpdateInput = {};
+    if (rest.sku !== undefined) {
+      data.sku = rest.sku;
+    }
+    if (rest.name !== undefined) {
+      data.name = rest.name;
+    }
+    if (rest.currentStockUnits !== undefined) {
+      data.currentStockUnits = rest.currentStockUnits;
+    }
+    if (rest.isActive !== undefined) {
+      data.isActive = rest.isActive;
+    }
+    if (brand !== undefined) {
+      data.brand = brand ?? null;
+    }
+    if (category !== undefined) {
+      data.category = category ?? null;
+    }
+    if (volumeMl !== undefined) {
+      data.volumeMl = volumeMl ?? null;
+    }
+    if (reorderLevel !== undefined) {
+      data.reorderLevel = reorderLevel ?? null;
+    }
+    if (mrpPrice !== undefined) {
+      data.mrpPrice = new Prisma.Decimal(mrpPrice);
+    }
+    if (purchaseCostPrice !== undefined) {
+      data.purchaseCostPrice = new Prisma.Decimal(purchaseCostPrice);
+    }
     const item = await prisma.item.update({
       where: { id: Number(id) },
-      data: {
-        ...rest,
-        ...(mrpPrice !== undefined ? { mrpPrice: new Prisma.Decimal(mrpPrice) } : {}),
-        ...(purchaseCostPrice !== undefined
-          ? { purchaseCostPrice: new Prisma.Decimal(purchaseCostPrice) }
-          : {}),
-      },
+      data,
     });
     res.json({ item });
   }),
@@ -97,6 +143,7 @@ router.put(
 
 router.delete(
   "/:id",
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
     await prisma.item.update({

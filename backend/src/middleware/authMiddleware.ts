@@ -16,7 +16,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    req.user = { id: payload.userId, email: payload.email };
+    req.user = { id: payload.userId, email: payload.email, role: payload.role };
     req.currentAdmin = admin;
     next();
   } catch (error) {
