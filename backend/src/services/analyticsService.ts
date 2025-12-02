@@ -282,6 +282,77 @@ export async function getDailyPerformance(range: DateRange) {
   };
 }
 
+export async function getDailyTopProducts(
+  params: DateRange & { limit?: number; sort?: "revenue" | "units" } = {},
+) {
+  const { start, end } = normalizeRange(params, 30);
+  const lines = await prisma.dayEndReportLine.findMany({
+    where: {
+      report: {
+        reportDate: {
+          gte: start.toDate(),
+          lte: end.toDate(),
+        },
+      },
+    },
+    include: { report: true, item: true },
+    orderBy: { report: { reportDate: "asc" } },
+  });
+
+  const dayMap = new Map<
+    string,
+    Map<
+      number,
+      {
+        itemId: number;
+        itemName: string;
+        units: number;
+        revenue: number;
+      }
+    >
+  >();
+
+  for (const line of lines) {
+    const dateKey = dayjs(line.report.reportDate).format("YYYY-MM-DD");
+    const perDay = dayMap.get(dateKey) ?? new Map();
+    const existing =
+      perDay.get(line.itemId) ??
+      {
+        itemId: line.itemId,
+        itemName: line.item.name,
+        units: 0,
+        revenue: 0,
+      };
+    existing.units += line.quantitySoldUnits;
+    existing.revenue += Number(line.lineRevenue);
+    perDay.set(line.itemId, existing);
+    dayMap.set(dateKey, perDay);
+  }
+
+  let cursor = start.clone();
+  const boundary = end.clone();
+  while (cursor.isBefore(boundary) || cursor.isSame(boundary, "day")) {
+    const key = cursor.format("YYYY-MM-DD");
+    if (!dayMap.has(key)) {
+      dayMap.set(key, new Map());
+    }
+    cursor = cursor.add(1, "day");
+  }
+
+  const limit = params.limit ?? 3;
+  const sortBy = params.sort ?? "revenue";
+  const days = Array.from(dayMap.entries())
+    .map(([date, itemsMap]) => ({
+      date,
+      topItems: Array.from(itemsMap.values())
+        .sort((a, b) => (sortBy === "revenue" ? b.revenue - a.revenue : b.units - a.units))
+        .slice(0, limit),
+    }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  return { days };
+}
+
 function normalizeRange(range: DateRange, defaultDays: number) {
   const end = range.endDate ? dayjs(range.endDate) : dayjs();
   const start = range.startDate ? dayjs(range.startDate) : end.subtract(defaultDays - 1, "day");
