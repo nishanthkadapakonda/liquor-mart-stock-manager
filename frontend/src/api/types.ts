@@ -117,6 +117,18 @@ export interface VelocityAnalytics {
   }[];
 }
 
+export interface DailyTopItemsAnalytics {
+  days: {
+    date: string;
+    topItems: {
+      itemId: number;
+      itemName: string;
+      units: number;
+      revenue: number;
+    }[];
+  }[];
+}
+
 export interface DailyPerformanceAnalytics {
   daily: {
     date: string;

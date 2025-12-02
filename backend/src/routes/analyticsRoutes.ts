@@ -3,6 +3,7 @@ import { z } from "zod";
 import { asyncHandler } from "../utils/asyncHandler";
 import {
   getDailyPerformance,
+  getDailyTopProducts,
   getSalesTimeSeries,
   getTopItems,
   getVelocity,
@@ -81,6 +82,25 @@ router.get(
       ...(endDate ? { endDate } : {}),
     };
     const data = await getDailyPerformance(range);
+    res.json(data);
+  }),
+);
+
+router.get(
+  "/daily-top-items",
+  asyncHandler(async (req, res) => {
+    const { startDate, endDate } = dateRangeQuery.parse(req.query);
+    const range = {
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+    };
+    const limit = req.query.limit ? Number(req.query.limit) : undefined;
+    const sort = req.query.sort === "units" ? "units" : "revenue";
+    const data = await getDailyTopProducts({
+      ...range,
+      ...(limit ? { limit } : {}),
+      sort,
+    });
     res.json(data);
   }),
 );
