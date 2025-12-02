@@ -6,10 +6,19 @@ export interface PurchaseLineInput {
   sku?: string;
   name?: string;
   brand?: string;
+  brandNumber?: string;
+  productType?: string;
+  sizeCode?: string;
+  packType?: string;
+  packSizeLabel?: string;
+  unitsPerPack?: number;
+  casesQuantity?: number;
   category?: string;
   volumeMl?: number;
   mrpPrice: number;
   unitCostPrice: number;
+  caseCostPrice?: number;
+  lineTotalPrice?: number;
   quantityUnits: number;
   reorderLevel?: number;
   isActive?: boolean;
@@ -42,6 +51,7 @@ export async function createPurchase(input: PurchaseInput) {
     let totalQuantity = 0;
     const priceUpdateCache = new Map<number, boolean>();
     for (const line of input.lineItems) {
+      const { unitsPerCase, casesQuantity, caseCostPrice, lineTotalPrice } = computeCaseStats(line);
       const itemId = await resolveItem(tx, line, input.allowItemCreation ?? true);
       const shouldUpdatePricing =
         priceUpdateCache.get(itemId) ??
@@ -53,7 +63,16 @@ export async function createPurchase(input: PurchaseInput) {
           purchaseId: purchase.id,
           itemId,
           quantityUnits: line.quantityUnits,
+          casesQuantity: casesQuantity ?? null,
+          unitsPerCase: unitsPerCase ?? null,
+          packType: line.packType ?? null,
+          packSizeLabel: line.packSizeLabel ?? null,
+          brandNumber: line.brandNumber ?? null,
+          productType: line.productType ?? null,
+          sizeCode: line.sizeCode ?? null,
           unitCostPrice: new Prisma.Decimal(line.unitCostPrice),
+          caseCostPrice: caseCostPrice !== undefined ? new Prisma.Decimal(caseCostPrice) : null,
+          lineTotalPrice: lineTotalPrice !== undefined ? new Prisma.Decimal(lineTotalPrice) : null,
           mrpPriceAtPurchase: new Prisma.Decimal(line.mrpPrice),
         },
       });
@@ -61,6 +80,7 @@ export async function createPurchase(input: PurchaseInput) {
       const itemUpdateData: Prisma.ItemUpdateInput = {
         currentStockUnits: { increment: line.quantityUnits },
       };
+      applyItemMetadata(itemUpdateData, line);
       if (shouldUpdatePricing) {
         itemUpdateData.mrpPrice = new Prisma.Decimal(line.mrpPrice);
         itemUpdateData.purchaseCostPrice = new Prisma.Decimal(line.unitCostPrice);
@@ -125,6 +145,7 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
     let totalQuantity = 0;
     const priceUpdateCache = new Map<number, boolean>();
     for (const line of input.lineItems) {
+      const { unitsPerCase, casesQuantity, caseCostPrice, lineTotalPrice } = computeCaseStats(line);
       const itemId = await resolveItem(tx, line, input.allowItemCreation ?? true);
       affectedItemIds.add(itemId);
       const shouldUpdatePricing =
@@ -137,7 +158,16 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
           purchaseId: purchase.id,
           itemId,
           quantityUnits: line.quantityUnits,
+          casesQuantity: casesQuantity ?? null,
+          unitsPerCase: unitsPerCase ?? null,
+          packType: line.packType ?? null,
+          packSizeLabel: line.packSizeLabel ?? null,
+          brandNumber: line.brandNumber ?? null,
+          productType: line.productType ?? null,
+          sizeCode: line.sizeCode ?? null,
           unitCostPrice: new Prisma.Decimal(line.unitCostPrice),
+          caseCostPrice: caseCostPrice !== undefined ? new Prisma.Decimal(caseCostPrice) : null,
+          lineTotalPrice: lineTotalPrice !== undefined ? new Prisma.Decimal(lineTotalPrice) : null,
           mrpPriceAtPurchase: new Prisma.Decimal(line.mrpPrice),
         },
       });
@@ -145,6 +175,7 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
       const itemUpdateData: Prisma.ItemUpdateInput = {
         currentStockUnits: { increment: line.quantityUnits },
       };
+      applyItemMetadata(itemUpdateData, line);
       if (shouldUpdatePricing) {
         itemUpdateData.mrpPrice = new Prisma.Decimal(line.mrpPrice);
         itemUpdateData.purchaseCostPrice = new Prisma.Decimal(line.unitCostPrice);
@@ -264,19 +295,39 @@ async function resolveItem(
     }
   }
 
+  if (line.brandNumber && line.sizeCode) {
+    const existing = await tx.item.findFirst({
+      where: {
+        brandNumber: line.brandNumber,
+        sizeCode: line.sizeCode,
+        ...(line.packType ? { packType: line.packType } : {}),
+      },
+    });
+    if (existing) {
+      return existing.id;
+    }
+  }
+
   if (!allowCreation) {
     throw new Error("Item creation is disabled for this import");
   }
 
-  if (!line.name || !line.sku) {
-    throw new Error("New items require sku and name");
+  if (!line.name) {
+    throw new Error("New items require a name");
   }
 
+  const sku = deriveSku(line);
   const item = await tx.item.create({
     data: {
-      sku: line.sku,
+      sku,
       name: line.name,
+      brandNumber: line.brandNumber ?? null,
       brand: line.brand ?? null,
+      productType: line.productType ?? null,
+      sizeCode: line.sizeCode ?? null,
+      packType: line.packType ?? null,
+      unitsPerPack: line.unitsPerPack ?? null,
+      packSizeLabel: line.packSizeLabel ?? null,
       category: line.category ?? null,
       volumeMl: line.volumeMl ?? null,
       mrpPrice: new Prisma.Decimal(line.mrpPrice),
@@ -302,4 +353,79 @@ async function shouldUpdateItemPricing(
     return true;
   }
   return purchaseDate >= latestLine.purchase.purchaseDate;
+}
+
+function applyItemMetadata(target: Prisma.ItemUpdateInput, line: PurchaseLineInput) {
+  if (line.brandNumber !== undefined) {
+    target.brandNumber = line.brandNumber ?? null;
+  }
+  if (line.brand !== undefined) {
+    target.brand = line.brand ?? null;
+  }
+  if (line.productType !== undefined) {
+    target.productType = line.productType ?? null;
+  }
+  if (line.sizeCode !== undefined) {
+    target.sizeCode = line.sizeCode ?? null;
+  }
+  if (line.packType !== undefined) {
+    target.packType = line.packType ?? null;
+  }
+  if (line.unitsPerPack !== undefined) {
+    target.unitsPerPack = line.unitsPerPack ?? null;
+  }
+  if (line.packSizeLabel !== undefined) {
+    target.packSizeLabel = line.packSizeLabel ?? null;
+  }
+  if (line.category !== undefined) {
+    target.category = line.category ?? null;
+  }
+  if (line.volumeMl !== undefined) {
+    target.volumeMl = line.volumeMl ?? null;
+  }
+  if (line.reorderLevel !== undefined) {
+    target.reorderLevel = line.reorderLevel ?? null;
+  }
+  if (line.isActive !== undefined) {
+    target.isActive = line.isActive;
+  }
+}
+
+function computeCaseStats(line: PurchaseLineInput) {
+  const inferredUnitsPerCase =
+    line.unitsPerPack ??
+    (line.casesQuantity && line.casesQuantity > 0
+      ? Math.round(line.quantityUnits / line.casesQuantity)
+      : undefined);
+  const unitsPerCase = inferredUnitsPerCase ?? undefined;
+  const casesQuantity =
+    line.casesQuantity ??
+    (unitsPerCase ? Math.round(line.quantityUnits / unitsPerCase) : undefined);
+  const caseCostPrice =
+    line.caseCostPrice ?? (unitsPerCase ? line.unitCostPrice * unitsPerCase : undefined);
+  const lineTotalPrice =
+    line.lineTotalPrice ??
+    (caseCostPrice !== undefined && casesQuantity !== undefined
+      ? caseCostPrice * casesQuantity
+      : undefined);
+  return { unitsPerCase, casesQuantity, caseCostPrice, lineTotalPrice };
+}
+
+function deriveSku(line: PurchaseLineInput) {
+  if (line.sku) {
+    return line.sku;
+  }
+  const parts = [line.brandNumber, line.sizeCode, line.packType]
+    .filter((part): part is string => Boolean(part))
+    .map((part) => part.replace(/\s+/g, "").toUpperCase());
+  if (parts.length >= 2) {
+    return parts.join("-");
+  }
+  if (line.brandNumber && line.volumeMl) {
+    return `${line.brandNumber}-${line.volumeMl}`;
+  }
+  if (line.name) {
+    return line.name.toUpperCase().replace(/[^A-Z0-9]/g, "-").slice(0, 20);
+  }
+  return `SKU-${Date.now()}`;
 }

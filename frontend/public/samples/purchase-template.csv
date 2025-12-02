@@ -1,6 +1,4 @@
-sku,item_name,brand,category,pack_size,quantity_cases,quantity_units,mrp_price,unit_cost_price,notes
-5016,King Fisher Premium Lager Beer,King Fisher,Beer,12/650ml,15,180,225,205,"Lager bottles for belt + retail"
-5022,King Fisher Strong Premium Beer,King Fisher,Beer,12/650ml,12,144,240,220,"Strong variant"
-0110,Officer's Choice Reserve Whisky 180ml,Officer's Choice,Whisky,48/180ml,10,480,190,165,"Miniature packs"
-0258,Seagram's Imperial Blue Classic Grain 750ml,Seagram's,Whisky,12/750ml,6,72,1050,920,"Premium grain whisky"
-0382,Royal Challenge Classic Malt Whisky 375ml,Royal Challenge,Whisky,24/375ml,5,120,780,640,"Classic malt mid-size"
+brand_no,brand_name,product_type,size_code,pack_qty,issue_type,qty_cases,issue_price,total_price
+5016,KING FISHER PREMIUM LAGER BEER,Beer,BE,"12 / 650ml",S,1,22515,22515
+0019,MCDOWELLS NO 1 LUXURY WHISKY,IML,DD,"48 / 180ml",P,2,16302,32604
+0258,SEAGRAM'S IMPERIAL BLUE CLASSIC GRAIN WHISKY,IML,QQ,"12 / 750ml",G,2,63101,126202

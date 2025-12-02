@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { api, getErrorMessage } from "../api/client";
-import type { Purchase } from "../api/types";
+import type { Purchase, PurchaseLineInput } from "../api/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { parsePurchaseUpload, type ParsedLine } from "../utils/fileParsers";
 import { useAuth } from "../providers/AuthProvider";
@@ -70,8 +70,7 @@ export function PurchasesPage() {
   const [supplierName, setSupplierName] = useState("");
   const [notes, setNotes] = useState("");
   const [manualLines, setManualLines] = useState<ManualLine[]>([emptyLine()]);
-  const [importPreview, setImportPreview] =
-    useState<ParsedLine<{ quantityUnits: number }>[]>(); // loose typing for preview table
+  const [importPreview, setImportPreview] = useState<ParsedLine<PurchaseLineInput>[]>();
   const [importFileName, setImportFileName] = useState<string | null>(null);
   const [importDate, setImportDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [importSupplier, setImportSupplier] = useState("");
@@ -231,13 +230,17 @@ export function PurchasesPage() {
   };
 
   const importSummary = useMemo(() => {
-    if (!importPreview) return { quantity: 0, linesWithIssues: 0 };
-    const quantity = importPreview.reduce(
-      (sum, row) => sum + (row.payload.quantityUnits ?? 0),
-      0,
-    );
+    if (!importPreview) return { quantity: 0, cases: 0, value: 0, linesWithIssues: 0 };
+    const quantity = importPreview.reduce((sum, row) => sum + (row.payload.quantityUnits ?? 0), 0);
+    const cases = importPreview.reduce((sum, row) => sum + (row.payload.casesQuantity ?? 0), 0);
+    const value = importPreview.reduce((sum, row) => {
+      const lineValue =
+        row.payload.lineTotalPrice ??
+        (row.payload.unitCostPrice ?? 0) * (row.payload.quantityUnits ?? 0);
+      return sum + lineValue;
+    }, 0);
     const linesWithIssues = importPreview.filter((row) => row.issues.length > 0).length;
-    return { quantity, linesWithIssues };
+    return { quantity, cases, value, linesWithIssues };
   }, [importPreview]);
 
   const handleImportSubmit = async () => {
@@ -471,7 +474,8 @@ export function PurchasesPage() {
         <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-base font-semibold text-slate-900">Import CSV / XLSX</p>
           <p className="text-sm text-slate-500">
-            Columns: sku, item_name, quantity_units, mrp_price, unit_cost_price, brand, category
+            Columns: brand_no, brand_name, product_type, size_code, pack_qty, issue_type, qty_cases, issue_price,
+            total_price
           </p>
           {!canEdit && (
             <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -524,9 +528,19 @@ export function PurchasesPage() {
             {importPreview && importPreview.length > 0 && (
               <div className="space-y-3">
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  <p>
-                    Rows: <strong>{importPreview.length}</strong>, Units total:{" "}
-                    <strong>{formatNumber(importSummary.quantity)}</strong>
+                  <p className="flex flex-wrap gap-4">
+                    <span>
+                      Rows: <strong>{importPreview.length}</strong>
+                    </span>
+                    <span>
+                      Cases: <strong>{formatNumber(importSummary.cases)}</strong>
+                    </span>
+                    <span>
+                      Units: <strong>{formatNumber(importSummary.quantity)}</strong>
+                    </span>
+                    <span>
+                      Value: <strong>{formatCurrency(importSummary.value)}</strong>
+                    </span>
                   </p>
                   {importSummary.linesWithIssues > 0 && (
                     <p className="text-red-500">
@@ -539,24 +553,39 @@ export function PurchasesPage() {
                     <thead className="bg-slate-50 text-left uppercase text-slate-400">
                       <tr>
                         <th className="px-3 py-2">Row</th>
-                        <th className="px-3 py-2">SKU / Item</th>
-                        <th className="px-3 py-2">Qty</th>
-                        <th className="px-3 py-2">MRP</th>
+                        <th className="px-3 py-2">Brand / Name</th>
+                        <th className="px-3 py-2">Size</th>
+                        <th className="px-3 py-2">Pack</th>
+                        <th className="px-3 py-2 text-right">Cases</th>
+                        <th className="px-3 py-2 text-right">Units</th>
+                        <th className="px-3 py-2 text-right">Cost/case</th>
+                        <th className="px-3 py-2 text-right">Line total</th>
                         <th className="px-3 py-2">Issues</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {importPreview.map((line) => (
-                        <tr key={`${line.row}-${line.payload.sku ?? line.rawName}`}>
+                        <tr key={`${line.row}-${line.payload.sku ?? line.rawName ?? line.row}`}>
                           <td className="px-3 py-2">{line.row}</td>
                           <td className="px-3 py-2">
-                            <p className="font-semibold text-slate-900">
-                              {line.payload.sku ?? "—"}
+                            <p className="font-semibold uppercase text-slate-900">
+                              #{line.payload.brandNumber ?? "—"}
                             </p>
                             <p className="text-[11px] text-slate-500">{line.rawName}</p>
                           </td>
-                          <td className="px-3 py-2">{line.payload.quantityUnits}</td>
-                          <td className="px-3 py-2">₹{line.payload.mrpPrice}</td>
+                          <td className="px-3 py-2">{line.payload.sizeCode ?? "—"}</td>
+                          <td className="px-3 py-2">
+                            <p className="text-sm text-slate-600">{line.payload.packSizeLabel ?? "—"}</p>
+                            <p className="text-[11px] uppercase text-slate-400">{line.payload.packType ?? "—"}</p>
+                          </td>
+                          <td className="px-3 py-2 text-right">{formatNumber(line.payload.casesQuantity ?? 0)}</td>
+                          <td className="px-3 py-2 text-right">{formatNumber(line.payload.quantityUnits ?? 0)}</td>
+                          <td className="px-3 py-2 text-right">
+                            {line.payload.caseCostPrice ? formatCurrency(line.payload.caseCostPrice) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {line.payload.lineTotalPrice ? formatCurrency(line.payload.lineTotalPrice) : "—"}
+                          </td>
                           <td className="px-3 py-2 text-red-500">
                             {line.issues.length ? line.issues.join(", ") : "OK"}
                           </td>
@@ -743,9 +772,11 @@ export function PurchasesPage() {
                                   <tr>
                                     <th className="py-1">Item</th>
                                     <th className="py-1">SKU</th>
-                                    <th className="py-1">Qty</th>
-                                    <th className="py-1">Unit cost</th>
-                                    <th className="py-1">MRP</th>
+                                    <th className="py-1">Pack</th>
+                                    <th className="py-1 text-right">Cases</th>
+                                    <th className="py-1 text-right">Units</th>
+                                    <th className="py-1 text-right">Unit cost</th>
+                                    <th className="py-1 text-right">MRP</th>
                                     <th className="py-1 text-right">Line total</th>
                                   </tr>
                                 </thead>
@@ -757,16 +788,32 @@ export function PurchasesPage() {
                                       line.mrpPriceAtPurchase !== undefined
                                         ? Number(line.mrpPriceAtPurchase)
                                         : Number(line.item.mrpPrice ?? 0);
-                                    const lineTotalCost = unitCost * line.quantityUnits;
+                                    const lineTotalCost =
+                                      line.lineTotalPrice !== null && line.lineTotalPrice !== undefined
+                                        ? Number(line.lineTotalPrice)
+                                        : unitCost * line.quantityUnits;
                                     return (
                                       <tr key={line.id}>
                                         <td className="py-1 font-semibold text-slate-900">
-                                          {line.item.name}
+                                          <p>{line.item.name}</p>
+                                          <p className="text-[11px] uppercase text-slate-400">
+                                            Brand #{line.brandNumber ?? line.item.brandNumber ?? "—"}
+                                          </p>
                                         </td>
                                         <td className="py-1 text-slate-500">{line.item.sku ?? "—"}</td>
-                                        <td className="py-1">{formatNumber(line.quantityUnits)}</td>
-                                        <td className="py-1">{formatCurrency(unitCost)}</td>
-                                        <td className="py-1">{formatCurrency(mrpAtPurchase)}</td>
+                                        <td className="py-1 text-slate-600">
+                                          <p>{line.packSizeLabel ?? line.item.packSizeLabel ?? "—"}</p>
+                                          <p className="text-[11px] uppercase text-slate-400">
+                                            {line.sizeCode ?? line.item.sizeCode ?? "—"}{" "}
+                                            {line.packType ? `• ${line.packType}` : ""}
+                                          </p>
+                                        </td>
+                                        <td className="py-1 text-right">
+                                          {formatNumber(line.casesQuantity ?? 0)}
+                                        </td>
+                                        <td className="py-1 text-right">{formatNumber(line.quantityUnits)}</td>
+                                        <td className="py-1 text-right">{formatCurrency(unitCost)}</td>
+                                        <td className="py-1 text-right">{formatCurrency(mrpAtPurchase)}</td>
                                         <td className="py-1 text-right font-semibold text-slate-900">
                                           {formatCurrency(lineTotalCost)}
                                         </td>

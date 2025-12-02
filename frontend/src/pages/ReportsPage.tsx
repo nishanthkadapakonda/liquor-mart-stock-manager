@@ -9,9 +9,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
-  LineChart,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -20,12 +20,14 @@ import {
   YAxis,
 } from "recharts";
 import toast from "react-hot-toast";
+import { utils as XLSXUtils, writeFile as writeXlsxFile } from "xlsx";
 import { api } from "../api/client";
 import type {
   AnalyticsTimeSeries,
   DailyPerformanceAnalytics,
   DailyTopItemsAnalytics,
   Item,
+  ProductSalesAnalytics,
   TopItemsAnalytics,
   VelocityAnalytics,
 } from "../api/types";
@@ -67,6 +69,10 @@ export function ReportsPage() {
   const [topItemsSort, setTopItemsSort] = useState<"revenue" | "units">("revenue");
   const [cumulativeMetric, setCumulativeMetric] = useState<"revenue" | "units">("revenue");
   const [channelWindow, setChannelWindow] = useState<ChannelWindow>(14);
+  const [channelMixFilter, setChannelMixFilter] = useState<ChannelFilter>("ALL");
+  const [cumulativeChannelFilter, setCumulativeChannelFilter] = useState<ChannelFilter>("ALL");
+  const [productSalesMetric, setProductSalesMetric] = useState<"revenue" | "units">("revenue");
+  const [productSalesSearch, setProductSalesSearch] = useState("");
   const [stockHealthFilter, setStockHealthFilter] = useState<StockHealthFilter>("ALL");
   const [inventorySearch, setInventorySearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
@@ -141,6 +147,19 @@ export function ReportsPage() {
     },
   });
 
+  const productSalesQuery = useQuery({
+    queryKey: ["analytics", "product-sales", selectedRange],
+    queryFn: async () => {
+      const response = await api.get<ProductSalesAnalytics>("/analytics/product-sales", {
+        params: {
+          startDate: selectedRange.startDate,
+          endDate: selectedRange.endDate,
+        },
+      });
+      return response.data;
+    },
+  });
+
   const velocityQuery = useQuery({
     queryKey: ["analytics", "velocity", selectedRange],
     queryFn: async () => {
@@ -208,6 +227,36 @@ export function ReportsPage() {
     [dailyRows],
   );
   const topItems = topItemsQuery.data?.top ?? [];
+  const productSalesRows = productSalesQuery.data?.products ?? [];
+  const productSalesSummary = productSalesQuery.data?.summary ?? { totalRevenue: 0, totalUnits: 0 };
+  const filteredProductSales = useMemo(() => {
+    if (!productSalesRows.length) return [];
+    const normalized = productSalesSearch.trim().toLowerCase();
+    const dataset = normalized
+      ? productSalesRows.filter(
+          (product) =>
+            product.itemName.toLowerCase().includes(normalized) ||
+            product.sku.toLowerCase().includes(normalized) ||
+            (product.brand ?? "").toLowerCase().includes(normalized) ||
+            (product.category ?? "").toLowerCase().includes(normalized),
+        )
+      : productSalesRows.slice();
+    return dataset.sort((a, b) =>
+      productSalesMetric === "revenue" ? b.revenue - a.revenue : b.units - a.units,
+    );
+  }, [productSalesRows, productSalesMetric, productSalesSearch]);
+  const productSalesChartData = useMemo(() => {
+    const sorted = filteredProductSales
+      .slice()
+      .sort((a, b) =>
+        productSalesMetric === "revenue" ? b.revenue - a.revenue : b.units - a.units,
+      )
+      .slice(0, 10);
+    return sorted.map((product) => ({
+      label: product.itemName,
+      value: productSalesMetric === "revenue" ? product.revenue : product.units,
+    }));
+  }, [filteredProductSales, productSalesMetric]);
 
   const avgPerDay = useMemo(() => {
     if (!chartData.length) return 0;
@@ -221,14 +270,21 @@ export function ReportsPage() {
   const cumulativeSeries = useMemo(() => {
     let running = 0;
     return dailyRows.map((day) => {
-      const value = cumulativeMetric === "revenue" ? day.revenue : day.units;
+      const value =
+        cumulativeMetric === "revenue"
+          ? cumulativeChannelFilter === "RETAIL"
+            ? day.retailRevenue
+            : cumulativeChannelFilter === "BELT"
+              ? day.beltRevenue
+              : day.revenue
+          : day.units;
       running += value;
       return {
         label: dayjs(day.date).format("DD MMM"),
         cumulative: running,
       };
     });
-  }, [dailyRows, cumulativeMetric]);
+  }, [dailyRows, cumulativeMetric, cumulativeChannelFilter]);
 
   const channelSeries = useMemo(() => {
     if (!dailyRows.length) return [];
@@ -271,7 +327,9 @@ export function ReportsPage() {
         normalizedSearch
           ? item.name.toLowerCase().includes(normalizedSearch) ||
             item.sku.toLowerCase().includes(normalizedSearch) ||
-            (item.brand ?? "").toLowerCase().includes(normalizedSearch)
+            (item.brand ?? "").toLowerCase().includes(normalizedSearch) ||
+            (item.brandNumber ?? "").toLowerCase().includes(normalizedSearch) ||
+            (item.sizeCode ?? "").toLowerCase().includes(normalizedSearch)
           : true,
       )
       .sort((a, b) => b.currentStockUnits - a.currentStockUnits);
@@ -358,34 +416,39 @@ export function ReportsPage() {
       toast.error("No inventory data to export");
       return;
     }
-    const headers = ["SKU", "Item", "Brand", "Category", "MRP", "Current stock", "Reorder level"];
+    const headers = [
+      "SKU",
+      "Brand number",
+      "Item",
+      "Product type",
+      "Size code",
+      "Pack label",
+      "Units per pack",
+      "Brand",
+      "Category",
+      "MRP",
+      "Current stock",
+      "Reorder level",
+    ];
     const rows = inventoryRows.map((item) => [
       item.sku,
+      item.brandNumber ?? "",
       item.name,
+      item.productType ?? "",
+      item.sizeCode ?? "",
+      item.packSizeLabel ?? "",
+      item.unitsPerPack ?? "",
       item.brand ?? "",
       item.category ?? "",
       Number(item.mrpPrice ?? 0),
       item.currentStockUnits,
       item.reorderLevel ?? "",
     ]);
-    const csv = [headers, ...rows]
-      .map((row) =>
-        row
-          .map((cell) => {
-            const safe = String(cell ?? "").replace(/"/g, '""');
-            return `"${safe}"`;
-          })
-          .join(","),
-      )
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `inventory-${dayjs().format("YYYYMMDD-HHmm")}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success("Inventory CSV exported");
+    const worksheet = XLSXUtils.aoa_to_sheet([headers, ...rows]);
+    const workbook = XLSXUtils.book_new();
+    XLSXUtils.book_append_sheet(workbook, worksheet, "Inventory");
+    writeXlsxFile(workbook, `inventory-${dayjs().format("YYYYMMDD-HHmm")}.xlsx`);
+    toast.success("Inventory Excel exported");
   }, [inventoryRows]);
 
   const quickRangeButtons = quickRanges.map((option) => {
@@ -395,13 +458,13 @@ export function ReportsPage() {
         key={option.value}
         type="button"
         onClick={() => setRangeKind(option.value)}
-        className={`rounded-2xl border px-4 py-3 text-left transition ${
+        className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
           isActive ? "border-brand-300 bg-brand-50" : "border-slate-100 hover:border-slate-200"
         }`}
       >
-        <p className="text-sm font-semibold text-slate-900">{option.label}</p>
+        <p className="font-semibold text-slate-900">{option.label}</p>
         <p className="text-xs text-slate-500">{option.description}</p>
-        {isActive && <p className="mt-1 text-[11px] font-semibold text-brand-600">Active</p>}
+        {isActive && <p className="mt-1 text-[10px] font-semibold uppercase text-brand-600">Active</p>}
       </button>
     );
   });
@@ -455,10 +518,10 @@ export function ReportsPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-[2fr,1fr]">
-          <div className="grid gap-4 sm:grid-cols-2">{quickRangeButtons}</div>
-          <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{quickRangeButtons}</div>
+          <div className="space-y-3 text-sm">
             <div>
               <label className="text-[11px] font-medium text-slate-500">Custom start</label>
               <input
@@ -480,18 +543,18 @@ export function ReportsPage() {
             <button
               type="button"
               onClick={handleApplyCustomRange}
-              className="w-full rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+              className="w-full rounded-full bg-slate-900 px-4 py-2 font-semibold text-white"
             >
               Apply custom range
             </button>
-            <div className="flex flex-wrap gap-2 rounded-full border border-slate-200 px-2 py-1 text-sm">
+            <div className="flex flex-wrap gap-2 rounded-full border border-slate-200 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
               {(["revenue", "units"] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setTrendMetric(value)}
                   className={`rounded-full px-3 py-1 ${
-                    trendMetric === value ? "bg-brand-600 text-white" : "text-slate-600"
+                    trendMetric === value ? "bg-brand-600 text-white" : "text-slate-500"
                   }`}
                 >
                   {value === "revenue" ? "Revenue metric" : "Units metric"}
@@ -503,49 +566,54 @@ export function ReportsPage() {
       </div>
 
       <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-medium text-slate-600">{trendMetric === "revenue" ? "Revenue" : "Units"} trend</p>
-            <p className="text-xs text-slate-500">{chartData.length ? `${chartData.length} data points` : "Awaiting data"}</p>
+            <p className="text-sm font-semibold text-slate-900">
+              {trendMetric === "revenue" ? "Revenue" : "Units"} trend
+            </p>
+            <p className="text-xs text-slate-500">
+              {chartData.length ? `${chartData.length} data points` : "Awaiting data"}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
-            <div className="flex items-center gap-2">
-              <span className="uppercase tracking-wide text-[10px]">Channel</span>
-              {channelOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setChannelFilter(option)}
-                  className={`rounded-full border px-3 py-1 ${
-                    channelFilter === option
-                      ? "border-brand-400 bg-brand-50 text-brand-700"
-                      : "border-slate-200 text-slate-500"
-                  }`}
-                >
-                  {option === "ALL" ? "All" : option.toLowerCase() === "retail" ? "Retail" : "Belt"}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-[11px] uppercase tracking-wide">{movingAverageWindow}-day avg</label>
-              <input
-                type="checkbox"
-                checked={showMovingAverage}
-                onChange={(e) => setShowMovingAverage(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300"
-              />
-              <select
-                value={movingAverageWindow}
-                onChange={(e) => setMovingAverageWindow(Number(e.target.value) as MovingAverageWindow)}
-                className="rounded-full border border-slate-200 px-2 py-1 text-xs"
+          <p className="text-xs uppercase tracking-wide text-slate-400">Global filters apply</p>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-3 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-slate-400">Channel</span>
+            {channelOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setChannelFilter(option)}
+                className={`rounded-full border px-3 py-1 ${
+                  channelFilter === option
+                    ? "border-brand-400 bg-brand-50 text-brand-700"
+                    : "border-slate-200 text-slate-500"
+                }`}
               >
-                {movingAverageOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}d
-                  </option>
-                ))}
-              </select>
-            </div>
+                {option === "ALL" ? "All" : option.toLowerCase() === "retail" ? "Retail" : "Belt"}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-[10px] uppercase tracking-wide text-slate-400">Moving average</label>
+            <input
+              type="checkbox"
+              checked={showMovingAverage}
+              onChange={(e) => setShowMovingAverage(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            <select
+              value={movingAverageWindow}
+              onChange={(e) => setMovingAverageWindow(Number(e.target.value) as MovingAverageWindow)}
+              className="rounded-full border border-slate-200 px-2 py-1 text-[11px]"
+            >
+              {movingAverageOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}d
+                </option>
+              ))}
+            </select>
           </div>
         </div>
         <div className="mt-4 h-72 w-full">
@@ -557,7 +625,7 @@ export function ReportsPage() {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartDataWithAverage}>
+              <ComposedChart data={chartDataWithAverage}>
                 <CartesianGrid stroke="#E2E8F0" strokeDasharray="4 4" />
                 <XAxis dataKey="label" interval="preserveStartEnd" tick={{ fontSize: 11 }} />
                 <YAxis
@@ -581,7 +649,7 @@ export function ReportsPage() {
                         </p>
                         {showMovingAverage && (
                           <p className="text-[11px] text-slate-500">
-                            Avg {movingAverageWindow}d: {" "}
+                            Avg {movingAverageWindow}d:{" "}
                             {trendMetric === "revenue"
                               ? formatCurrency(point.movingAverage ?? 0)
                               : `${formatNumber(point.movingAverage ?? 0)} units`}
@@ -591,17 +659,17 @@ export function ReportsPage() {
                     );
                   }}
                 />
-                <Line
-                  type="monotone"
+                <Bar
                   dataKey="value"
-                  stroke={trendMetric === "revenue" ? "#2563EB" : "#0EA5E9"}
-                  strokeWidth={2}
-                  dot={false}
+                  fill={trendMetric === "revenue" ? "#2563EB" : "#0EA5E9"}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={22}
+                  name={trendMetric === "revenue" ? "Revenue" : "Units"}
                 />
                 {showMovingAverage && (
                   <Line type="monotone" dataKey="movingAverage" stroke="#94A3B8" strokeDasharray="6 6" dot={false} />
                 )}
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
           )}
         </div>
@@ -630,6 +698,24 @@ export function ReportsPage() {
                 </button>
               ))}
             </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600">
+            <span className="text-[10px] uppercase tracking-wide text-slate-400">Channel filter</span>
+            {channelOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                disabled={cumulativeMetric === "units" && option !== "ALL"}
+                onClick={() => setCumulativeChannelFilter(option)}
+                className={`rounded-full border px-3 py-1 ${
+                  cumulativeChannelFilter === option
+                    ? "border-brand-400 bg-brand-50 text-brand-700"
+                    : "border-slate-200 text-slate-500"
+                } ${cumulativeMetric === "units" && option !== "ALL" ? "opacity-50" : ""}`}
+              >
+                {option === "ALL" ? "All" : option === "RETAIL" ? "Retail" : "Belt"}
+              </button>
+            ))}
           </div>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
             {cumulativeMetric === "revenue" ? formatCurrency(cumulativeTotal) : formatNumber(cumulativeTotal)}
@@ -695,19 +781,40 @@ export function ReportsPage() {
               ))}
             </div>
           </div>
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600">
+            <span className="text-[10px] uppercase tracking-wide text-slate-400">Channel filter</span>
+            {channelOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setChannelMixFilter(option)}
+                className={`rounded-full border px-3 py-1 ${
+                  channelMixFilter === option
+                    ? "border-brand-400 bg-brand-50 text-brand-700"
+                    : "border-slate-200 text-slate-500"
+                }`}
+              >
+                {option === "ALL" ? "All" : option === "RETAIL" ? "Retail" : "Belt"}
+              </button>
+            ))}
+          </div>
           <div className="mt-4 h-56">
             {channelSeries.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-slate-500">Not enough data</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={channelSeries}>
+                <BarChart data={channelSeries} barCategoryGap="20%" barGap={8}>
                   <CartesianGrid strokeDasharray="4 4" stroke="#E2E8F0" />
-                  <XAxis dataKey="label" hide />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={(value) => formatCurrency(value).replace("₹", "₹ ")} />
                   <Tooltip formatter={(value: number) => formatCurrency(value)} />
                   <Legend />
-                  <Bar dataKey="retail" stackId="channel" fill="#2563EB" radius={[4, 4, 0, 0]} name="Retail" />
-                  <Bar dataKey="belt" stackId="channel" fill="#0EA5E9" radius={[4, 4, 0, 0]} name="Belt" />
+                  {(channelMixFilter === "ALL" || channelMixFilter === "RETAIL") && (
+                    <Bar dataKey="retail" fill="#2563EB" radius={[4, 4, 0, 0]} name="Retail" />
+                  )}
+                  {(channelMixFilter === "ALL" || channelMixFilter === "BELT") && (
+                    <Bar dataKey="belt" fill="#0EA5E9" radius={[4, 4, 0, 0]} name="Belt" />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -831,6 +938,152 @@ export function ReportsPage() {
                   />
                   <Scatter data={filteredVelocity} fill="#2563EB" />
                 </ScatterChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[3fr,2fr]">
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-base font-semibold text-slate-900">Product-level sales</p>
+              <p className="text-xs text-slate-500">Complete totals for every SKU in range</p>
+            </div>
+            <div className="flex w-full flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-end">
+              <input
+                type="text"
+                value={productSalesSearch}
+                onChange={(e) => setProductSalesSearch(e.target.value)}
+                placeholder="Filter SKU, name, brand…"
+                className="w-full rounded-full border border-slate-200 px-4 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 sm:max-w-xs"
+              />
+              <div className="flex flex-wrap items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <span>Sort</span>
+                {(["revenue", "units"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setProductSalesMetric(value)}
+                    className={`rounded-full px-3 py-1 ${
+                      productSalesMetric === value ? "bg-brand-600 text-white" : "text-slate-500"
+                    }`}
+                  >
+                    {value === "revenue" ? "Revenue" : "Units"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 max-h-96 overflow-auto">
+            {productSalesQuery.isLoading ? (
+              <div className="flex h-48 items-center justify-center text-sm text-slate-500">
+                Loading product totals…
+              </div>
+            ) : (
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-400">
+                  <tr>
+                    <th className="py-2">Product</th>
+                    <th className="py-2">Category</th>
+                    <th className="py-2 text-right">Units sold</th>
+                    <th className="py-2 text-right">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredProductSales.map((product) => (
+                    <tr key={product.itemId}>
+                      <td className="py-3">
+                        <p className="font-semibold text-slate-900">{product.itemName}</p>
+                        <p className="text-xs text-slate-500">
+                          SKU {product.sku} • {product.brand ?? "Unbranded"}
+                        </p>
+                      </td>
+                      <td className="py-3 text-slate-600">{product.category ?? "—"}</td>
+                      <td className="py-3 text-right font-semibold text-slate-900">{formatNumber(product.units)}</td>
+                      <td className="py-3 text-right font-semibold text-slate-900">{formatCurrency(product.revenue)}</td>
+                    </tr>
+                  ))}
+                  {filteredProductSales.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-6 text-center text-slate-500">
+                        {productSalesRows.length === 0
+                          ? "No product sales for this range."
+                          : "Nothing matches your filters."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 text-sm font-semibold text-slate-900">
+                    <td colSpan={2} className="py-2 pr-4 text-right text-xs uppercase tracking-wide text-slate-500">
+                      Totals
+                    </td>
+                    <td className="py-2 text-right">{formatNumber(productSalesSummary.totalUnits)}</td>
+                    <td className="py-2 text-right">{formatCurrency(productSalesSummary.totalRevenue)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-base font-semibold text-slate-900">Product performance chart</p>
+              <p className="text-xs text-slate-500">
+                Top {productSalesChartData.length || 0} by {productSalesMetric}
+              </p>
+            </div>
+            <div className="flex gap-2 text-xs font-semibold">
+              {(["revenue", "units"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setProductSalesMetric(value)}
+                  className={`rounded-full border px-3 py-1 ${
+                    productSalesMetric === value
+                      ? "border-brand-400 bg-brand-50 text-brand-700"
+                      : "border-slate-200 text-slate-500"
+                  }`}
+                >
+                  {value === "revenue" ? "Revenue" : "Units"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 h-80">
+            {productSalesChartData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                {productSalesQuery.isLoading ? "Preparing chart…" : "No product sales to chart."}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  layout="vertical"
+                  data={productSalesChartData}
+                  margin={{ left: 80, right: 20, top: 10, bottom: 10 }}
+                >
+                  <CartesianGrid strokeDasharray="4 4" stroke="#E2E8F0" />
+                  <XAxis
+                    type="number"
+                    tickFormatter={(value) =>
+                      productSalesMetric === "revenue" ? formatCurrency(value) : formatNumber(value)
+                    }
+                  />
+                  <YAxis type="category" dataKey="label" width={160} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    formatter={(value: number) =>
+                      productSalesMetric === "revenue" ? formatCurrency(value) : formatNumber(value)
+                    }
+                  />
+                  <Bar
+                    dataKey="value"
+                    fill={productSalesMetric === "revenue" ? "#2563EB" : "#0EA5E9"}
+                    radius={[0, 6, 6, 0]}
+                  />
+                </BarChart>
               </ResponsiveContainer>
             )}
           </div>
@@ -973,7 +1226,7 @@ export function ReportsPage() {
               type="text"
               value={inventorySearch}
               onChange={(e) => setInventorySearch(e.target.value)}
-              placeholder="Search SKU, name, brand…"
+              placeholder="Search SKU, name, brand, code…"
               className="w-full rounded-full border border-slate-200 px-4 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 sm:w-64"
             />
             <button
@@ -981,7 +1234,7 @@ export function ReportsPage() {
               onClick={handleInventoryExport}
               className="rounded-full border border-slate-200 px-4 py-2 font-semibold text-slate-700"
             >
-              Download inventory CSV
+              Download inventory Excel
             </button>
           </div>
         </div>
@@ -1005,8 +1258,9 @@ export function ReportsPage() {
               <tr>
                 <th className="py-2">SKU</th>
                 <th className="py-2">Item</th>
-                <th className="py-2">Brand</th>
-                <th className="py-2">Category</th>
+                <th className="py-2">Brand #</th>
+                <th className="py-2">Product type</th>
+                <th className="py-2">Pack</th>
                 <th className="py-2 text-right">MRP</th>
                 <th className="py-2 text-right">Stock</th>
                 <th className="py-2 text-right">Reorder</th>
@@ -1018,10 +1272,18 @@ export function ReportsPage() {
                   <td className="py-3 font-semibold text-slate-900">{item.sku}</td>
                   <td className="py-3">
                     <p className="font-semibold text-slate-900">{item.name}</p>
-                    <p className="text-xs text-slate-500">{item.volumeMl ? `${item.volumeMl} ml` : ""}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.volumeMl ? `${item.volumeMl} ml` : ""} {item.brand ? `• ${item.brand}` : ""}
+                    </p>
                   </td>
-                  <td className="py-3 text-slate-600">{item.brand ?? "—"}</td>
-                  <td className="py-3 text-slate-600">{item.category ?? "—"}</td>
+                  <td className="py-3 text-slate-600">{item.brandNumber ?? "—"}</td>
+                  <td className="py-3 text-slate-600">{item.productType ?? item.category ?? "—"}</td>
+                  <td className="py-3 text-slate-600">
+                    <p>{item.packSizeLabel ?? (item.unitsPerPack ? `${item.unitsPerPack} units` : "—")}</p>
+                    <p className="text-xs uppercase text-slate-400">
+                      {item.sizeCode ?? "—"} {item.packType ? `• ${item.packType}` : ""}
+                    </p>
+                  </td>
                   <td className="py-3 text-right text-slate-600">{formatCurrency(Number(item.mrpPrice ?? 0))}</td>
                   <td className="py-3 text-right font-semibold text-slate-900">{formatNumber(item.currentStockUnits)}</td>
                   <td className="py-3 text-right text-slate-600">{item.reorderLevel ?? "—"}</td>

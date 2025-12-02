@@ -25,7 +25,11 @@ async function parseFile(file: File): Promise<Record<string, unknown>[]> {
 function normalizeRow(row: Record<string, unknown>) {
   const normalized: Record<string, unknown> = {};
   Object.entries(row).forEach(([key, value]) => {
-    const cleanKey = key.trim().toLowerCase().replace(/\s+/g, "_");
+    const cleanKey = key
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
     normalized[cleanKey] = value;
   });
   return normalized;
@@ -38,38 +42,132 @@ export interface ParsedLine<T> {
   rawName?: string;
 }
 
+function stringOrEmpty(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
+
+function numberOrZero(value: unknown): number {
+  if (value === undefined || value === null || value === "") return 0;
+  if (typeof value === "number") {
+    return Number.isNaN(value) ? 0 : value;
+  }
+  const cleaned = String(value).replace(/,/g, "").trim();
+  const parsed = Number(cleaned);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function parsePackLabel(label: string) {
+  if (!label) {
+    return {
+      label: undefined as string | undefined,
+      unitsPerPack: undefined as number | undefined,
+      volumeMl: undefined as number | undefined,
+    };
+  }
+  const cleaned = label.replace(/\s+/g, "");
+  const segments = cleaned.split("/");
+  const parsedUnits = segments.length > 1 ? Number(segments[0]) : Number(cleaned);
+  const unitsPerPack = Number.isNaN(parsedUnits) ? undefined : parsedUnits;
+  const sizeToken = segments[1] ?? "";
+  const sizeMatch = sizeToken.match(/([\d.]+)(ml|l)/i);
+  let volumeMl: number | undefined;
+  if (sizeMatch) {
+    const qty = Number(sizeMatch[1]);
+    const unit = sizeMatch[2]?.toLowerCase();
+    if (!Number.isNaN(qty)) {
+      volumeMl = unit === "l" ? qty * 1000 : qty;
+    }
+  }
+  return {
+    label: label.trim() || undefined,
+    unitsPerPack,
+    volumeMl,
+  };
+}
+
 export async function parsePurchaseUpload(file: File): Promise<ParsedLine<PurchaseLineInput>[]> {
   const rows = await parseFile(file);
   return rows.map((row, index) => {
     const normalized = normalizeRow(row);
     const issues: string[] = [];
-    const quantity = Number(normalized.quantity_units ?? normalized.qty ?? normalized.quantity ?? 0);
-    if (!quantity || Number.isNaN(quantity)) {
-      issues.push("Missing quantity");
+    const brandNumber = stringOrEmpty(
+      normalized.brand_no ?? normalized.brand_number ?? normalized.brandcode ?? normalized.brand_id,
+    );
+    if (!brandNumber) {
+      issues.push("Missing brand number");
     }
-    const mrp = Number(normalized.mrp_price ?? normalized.mrp ?? 0);
-    if (!mrp || Number.isNaN(mrp)) {
-      issues.push("Missing MRP");
+    const brandName = stringOrEmpty(normalized.brand_name ?? normalized.item_name ?? normalized.name);
+    if (!brandName) {
+      issues.push("Missing brand name");
     }
-    const unitCost = Number(normalized.unit_cost_price ?? normalized.cost ?? mrp);
-    if (Number.isNaN(unitCost)) {
-      issues.push("Invalid cost price");
+    const productType = stringOrEmpty(normalized.product_type ?? normalized.category ?? normalized.type);
+    if (!productType) {
+      issues.push("Missing product type");
     }
-    const sku = String(normalized.sku ?? "").trim();
-    const name = String(normalized.item_name ?? normalized.name ?? "").trim();
-    if (!sku && !name) {
-      issues.push("Need SKU or item name");
+    const sizeCode = stringOrEmpty(normalized.size_code ?? normalized.size);
+    if (!sizeCode) {
+      issues.push("Missing size code");
     }
+    const packLabelRaw = stringOrEmpty(
+      normalized.pack_qty ?? normalized.pack ?? normalized.pack_qty_size ?? normalized.pack_size,
+    );
+    const packInfo = parsePackLabel(packLabelRaw);
+    if (!packInfo.unitsPerPack) {
+      issues.push("Invalid pack quantity");
+    }
+    const packType = stringOrEmpty(normalized.pack_type ?? normalized.issue_type)?.toUpperCase();
+    const casesQuantity = numberOrZero(
+      normalized.qty_cases ?? normalized.quantity_cases ?? normalized.cases ?? normalized.qty,
+    );
+    if (!casesQuantity) {
+      issues.push("Missing cases quantity");
+    }
+    const issuePrice = numberOrZero(
+      normalized.issue_price ?? normalized.case_price ?? normalized.cost_price ?? normalized.price,
+    );
+    if (!issuePrice) {
+      issues.push("Missing issue price");
+    }
+    const totalPrice = numberOrZero(
+      normalized.total_price ?? normalized.line_total ?? normalized.amount ?? issuePrice * casesQuantity,
+    );
+    const unitsPerPack = packInfo.unitsPerPack ?? numberOrZero(normalized.units_per_pack);
+    if (!unitsPerPack) {
+      issues.push("Pack quantity is required");
+    }
+    const quantityUnits = unitsPerPack * casesQuantity;
+    if (!quantityUnits) {
+      issues.push("Computed units missing");
+    }
+    const unitCostPrice =
+      unitsPerPack > 0 ? Number((issuePrice / unitsPerPack).toFixed(2)) : numberOrZero(normalized.unit_cost_price);
+    if (!unitCostPrice) {
+      issues.push("Derived cost per unit missing");
+    }
+    const mrp = numberOrZero(normalized.mrp_price ?? normalized.mrp) || unitCostPrice;
+    const sku =
+      stringOrEmpty(normalized.sku) ||
+      [brandNumber, sizeCode].filter(Boolean).join("-") ||
+      undefined;
     const payload: PurchaseLineInput = {
-      sku: sku || undefined,
-      name: name || undefined,
-      brand: (normalized.brand as string) || undefined,
-      category: (normalized.category as string) || undefined,
+      sku,
+      name: brandName || undefined,
+      brand: brandName || undefined,
+      brandNumber: brandNumber || undefined,
+      productType: productType || undefined,
+      sizeCode: sizeCode || undefined,
+      packType: packType || undefined,
+      packSizeLabel: packInfo.label,
+      unitsPerPack,
+      casesQuantity,
+      category: productType || undefined,
+      volumeMl: packInfo.volumeMl,
       mrpPrice: mrp,
-      unitCostPrice: unitCost || mrp,
-      quantityUnits: quantity || 0,
-      volumeMl: normalized.volume_ml ? Number(normalized.volume_ml) : undefined,
-      reorderLevel: normalized.reorder_level ? Number(normalized.reorder_level) : undefined,
+      unitCostPrice,
+      caseCostPrice: issuePrice,
+      lineTotalPrice: totalPrice,
+      quantityUnits,
     };
 
     return {

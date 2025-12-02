@@ -9,7 +9,13 @@ import { useAuth } from "../providers/AuthProvider";
 const emptyItemForm = {
   sku: "",
   name: "",
+  brandNumber: "",
   brand: "",
+  productType: "",
+  sizeCode: "",
+  packType: "",
+  packSizeLabel: "",
+  unitsPerPack: "",
   category: "",
   volumeMl: "",
   mrpPrice: "",
@@ -49,7 +55,10 @@ export function ItemsPage() {
       (item) =>
         item.name.toLowerCase().includes(term) ||
         item.sku.toLowerCase().includes(term) ||
-        (item.brand ?? "").toLowerCase().includes(term),
+        (item.brand ?? "").toLowerCase().includes(term) ||
+        (item.brandNumber ?? "").toLowerCase().includes(term) ||
+        (item.sizeCode ?? "").toLowerCase().includes(term) ||
+        (item.productType ?? "").toLowerCase().includes(term),
     );
   }, [itemsQuery.data, search]);
 
@@ -69,7 +78,13 @@ export function ItemsPage() {
       const payload = {
         sku: form.sku,
         name: form.name,
-        brand: form.brand || undefined,
+      brandNumber: form.brandNumber || undefined,
+      brand: form.brand || undefined,
+      productType: form.productType || undefined,
+      sizeCode: form.sizeCode || undefined,
+      packType: form.packType || undefined,
+      packSizeLabel: form.packSizeLabel || undefined,
+      unitsPerPack: form.unitsPerPack ? Number(form.unitsPerPack) : undefined,
         category: form.category || undefined,
         volumeMl: form.volumeMl ? Number(form.volumeMl) : undefined,
         mrpPrice: Number(form.mrpPrice),
@@ -102,7 +117,14 @@ export function ItemsPage() {
     setForm({
       sku: item.sku ?? "",
       name: item.name ?? "",
+      brandNumber: item.brandNumber ?? "",
       brand: item.brand ?? "",
+      productType: item.productType ?? "",
+      sizeCode: item.sizeCode ?? "",
+      packType: item.packType ?? "",
+      packSizeLabel: item.packSizeLabel ?? "",
+      unitsPerPack:
+        item.unitsPerPack !== null && item.unitsPerPack !== undefined ? String(item.unitsPerPack) : "",
       category: item.category ?? "",
       volumeMl: item.volumeMl !== null && item.volumeMl !== undefined ? String(item.volumeMl) : "",
       mrpPrice: item.mrpPrice !== null && item.mrpPrice !== undefined ? String(item.mrpPrice) : "",
@@ -184,9 +206,15 @@ export function ItemsPage() {
             {Object.entries({
               sku: "SKU",
               name: "Name",
-              brand: "Brand",
+              brandNumber: "Brand number",
+              brand: "Brand name",
+              productType: "Product type",
+              sizeCode: "Size code",
+              packType: "Pack type",
+              packSizeLabel: "Pack label (e.g. 12 / 650ml)",
+              unitsPerPack: "Units per pack",
               category: "Category",
-              volumeMl: "Volume (ml)",
+              volumeMl: "Bottle volume (ml)",
               mrpPrice: "MRP Price",
               purchaseCostPrice: "Cost Price",
               reorderLevel: "Reorder Level",
@@ -194,7 +222,11 @@ export function ItemsPage() {
               <div key={key}>
                 <label className="text-xs font-medium text-slate-500">{label}</label>
                 <input
-                  type="text"
+                  type={
+                    key === "unitsPerPack" || key === "volumeMl" || key === "mrpPrice" || key === "purchaseCostPrice" || key === "reorderLevel"
+                      ? "number"
+                      : "text"
+                  }
                   value={(form as Record<string, string>)[key] ?? ""}
                   onChange={(e) =>
                     setForm((prev) => ({
@@ -250,9 +282,19 @@ export function ItemsPage() {
                   <tr key={item.id} className="align-top">
                     <td className="py-3">
                       <p className="font-semibold text-slate-900">{item.name}</p>
-                      <p className="text-xs text-slate-500">SKU: {item.sku}</p>
+                      <p className="text-xs text-slate-500">
+                        SKU: {item.sku} • Brand #{item.brandNumber ?? "—"} • Size {item.sizeCode ?? "—"}
+                      </p>
+                      <p className="text-[11px] uppercase text-slate-400">
+                        {item.productType ?? "—"}{" "}
+                        {item.packSizeLabel ? `• ${item.packSizeLabel}` : item.unitsPerPack ? `• ${item.unitsPerPack} units` : ""}
+                        {item.packType ? ` • ${item.packType}` : ""}
+                      </p>
                     </td>
-                    <td className="py-3 text-slate-600">{item.brand ?? "—"}</td>
+                    <td className="py-3 text-slate-600">
+                      <p>{item.brand ?? "—"}</p>
+                      <p className="text-xs text-slate-400">{item.category ?? item.productType ?? "—"}</p>
+                    </td>
                     <td className="py-3 text-slate-600">₹{Number(item.mrpPrice)}</td>
                     <td className="py-3 font-semibold text-slate-900">
                       {formatNumber(item.currentStockUnits)}

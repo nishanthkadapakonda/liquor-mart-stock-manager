@@ -143,6 +143,63 @@ export async function getTopItems(range: DateRange & { limit?: number; sort?: "r
   return { top };
 }
 
+export async function getProductSalesSummary(range: DateRange) {
+  const { start, end } = normalizeRange(range, 30);
+  const lines = await prisma.dayEndReportLine.findMany({
+    where: {
+      report: {
+        reportDate: {
+          gte: start.toDate(),
+          lte: end.toDate(),
+        },
+      },
+    },
+    include: { item: true },
+  });
+
+  const map = new Map<
+    number,
+    {
+      itemId: number;
+      sku: string;
+      itemName: string;
+      brand: string | null;
+      category: string | null;
+      units: number;
+      revenue: number;
+    }
+  >();
+
+  for (const line of lines) {
+    const existing =
+      map.get(line.itemId) ??
+      {
+        itemId: line.itemId,
+        sku: line.item.sku,
+        itemName: line.item.name,
+        brand: line.item.brand ?? null,
+        category: line.item.category ?? null,
+        units: 0,
+        revenue: 0,
+      };
+    existing.units += line.quantitySoldUnits;
+    existing.revenue += Number(line.lineRevenue);
+    map.set(line.itemId, existing);
+  }
+
+  const products = Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  const summary = products.reduce(
+    (acc, product) => {
+      acc.totalRevenue += product.revenue;
+      acc.totalUnits += product.units;
+      return acc;
+    },
+    { totalRevenue: 0, totalUnits: 0 },
+  );
+
+  return { products, summary };
+}
+
 export async function getVelocity(range: DateRange = {}) {
   const { start, end } = normalizeRange(range, 30);
   const days = end.diff(start, "day") || 1;
