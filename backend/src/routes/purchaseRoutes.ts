@@ -13,11 +13,17 @@ const purchaseLineSchema = z.object({
   sku: z.string().optional(),
   name: z.string().optional(),
   brand: z.string().optional(),
+  brandNumber: z.string().optional(),
+  productType: z.string().optional(),
+  sizeCode: z.string().optional(),
+  packType: z.string().optional(),
+  unitsPerPack: z.number().int().positive().optional(),
   category: z.string().optional(),
   volumeMl: z.number().int().nonnegative().optional(),
   mrpPrice: z.number().nonnegative(),
   unitCostPrice: z.number().nonnegative(),
   quantityUnits: z.number().int().positive(),
+  casesQuantity: z.number().int().nonnegative().optional(),
   reorderLevel: z.number().int().nonnegative().optional(),
   isActive: z.boolean().optional(),
 });
@@ -32,15 +38,37 @@ const purchaseSchema = z.object({
 
 function normalizeLineItems(items: z.infer<typeof purchaseSchema>["lineItems"]): PurchaseLineInput[] {
   return items.map((line) => {
-    const { itemId, sku, name, brand, category, volumeMl, reorderLevel, isActive, ...rest } = line;
+    const {
+      itemId,
+      sku,
+      name,
+      brand,
+      brandNumber,
+      productType,
+      sizeCode,
+      packType,
+      unitsPerPack,
+      category,
+      volumeMl,
+      reorderLevel,
+      isActive,
+      casesQuantity,
+      ...rest
+    } = line;
     return {
       ...rest,
       ...(typeof itemId === "number" ? { itemId } : {}),
       ...(sku ? { sku } : {}),
       ...(name ? { name } : {}),
       ...(brand ? { brand } : {}),
+      ...(brandNumber ? { brandNumber: brandNumber.trim() } : {}),
+      ...(productType ? { productType: productType.trim() } : {}),
+      ...(sizeCode ? { sizeCode: sizeCode.trim() } : {}),
+      ...(packType ? { packType: packType.trim() } : {}),
+      ...(typeof unitsPerPack === "number" ? { unitsPerPack } : {}),
       ...(category ? { category } : {}),
       ...(volumeMl !== undefined ? { volumeMl } : {}),
+      ...(typeof casesQuantity === "number" ? { casesQuantity } : {}),
       ...(reorderLevel !== undefined ? { reorderLevel } : {}),
       ...(typeof isActive === "boolean" ? { isActive } : {}),
     };

@@ -35,7 +35,12 @@ model Item {
   id                  Int                  @id @default(autoincrement())
   sku                 String               @unique
   name                String
+  brandNumber         String?
   brand               String?
+  productType         String?
+  sizeCode            String?
+  packType            String?
+  unitsPerPack        Int?
   category            String?
   volumeMl            Int?
   mrpPrice            Decimal
@@ -66,6 +71,9 @@ model PurchaseLineItem {
   item                Item      @relation(fields: [itemId], references: [id])
   itemId              Int
   quantityUnits       Int
+  casesQuantity       Int?
+  unitsPerCase        Int?
+  packType            String?
   unitCostPrice       Decimal
   mrpPriceAtPurchase  Decimal?
   createdAt           DateTime  @default(now())
