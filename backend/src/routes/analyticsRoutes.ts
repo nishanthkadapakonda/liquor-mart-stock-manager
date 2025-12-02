@@ -4,6 +4,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import {
   getDailyPerformance,
   getDailyTopProducts,
+  getProductSalesSummary,
   getSalesTimeSeries,
   getTopItems,
   getVelocity,
@@ -101,6 +102,19 @@ router.get(
       ...(limit ? { limit } : {}),
       sort,
     });
+    res.json(data);
+  }),
+);
+
+router.get(
+  "/product-sales",
+  asyncHandler(async (req, res) => {
+    const { startDate, endDate } = dateRangeQuery.parse(req.query);
+    const range = {
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+    };
+    const data = await getProductSalesSummary(range);
     res.json(data);
   }),
 );

@@ -76,22 +76,30 @@ router.post(
       reorderLevel,
       isActive,
     } = payload;
-    const item = await prisma.item.create({
-      data: {
-        sku,
-        name,
-        brand: brand ?? null,
-        category: category ?? null,
-        volumeMl: volumeMl ?? null,
-        currentStockUnits: currentStockUnits ?? 0,
-        reorderLevel: reorderLevel ?? null,
-        isActive: isActive ?? true,
-        mrpPrice: new Prisma.Decimal(mrpPrice),
-        purchaseCostPrice:
-          purchaseCostPrice !== undefined ? new Prisma.Decimal(purchaseCostPrice) : null,
-      },
-    });
-    res.status(201).json({ item });
+    try {
+      const item = await prisma.item.create({
+        data: {
+          sku,
+          name,
+          brand: brand ?? null,
+          category: category ?? null,
+          volumeMl: volumeMl ?? null,
+          currentStockUnits: currentStockUnits ?? 0,
+          reorderLevel: reorderLevel ?? null,
+          isActive: isActive ?? true,
+          mrpPrice: new Prisma.Decimal(mrpPrice),
+          purchaseCostPrice:
+            purchaseCostPrice !== undefined ? new Prisma.Decimal(purchaseCostPrice) : null,
+        },
+      });
+      res.status(201).json({ item });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        res.status(409).json({ message: "An item with this SKU already exists." });
+        return;
+      }
+      throw error;
+    }
   }),
 );
 

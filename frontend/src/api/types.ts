@@ -147,6 +147,22 @@ export interface DailyPerformanceAnalytics {
   };
 }
 
+export interface ProductSalesAnalytics {
+  products: {
+    itemId: number;
+    sku: string;
+    itemName: string;
+    brand: string | null;
+    category: string | null;
+    units: number;
+    revenue: number;
+  }[];
+  summary: {
+    totalRevenue: number;
+    totalUnits: number;
+  };
+}
+
 export interface SettingsPayload {
   defaultBeltMarkupRupees?: number;
   defaultLowStockThreshold?: number;
