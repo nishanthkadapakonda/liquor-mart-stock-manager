@@ -193,6 +193,95 @@ export async function getVelocity(range: DateRange = {}) {
   return { velocity };
 }
 
+export async function getDailyPerformance(range: DateRange) {
+  const { start, end } = normalizeRange(range, 30);
+  const lines = await prisma.dayEndReportLine.findMany({
+    where: {
+      report: {
+        reportDate: {
+          gte: start.toDate(),
+          lte: end.toDate(),
+        },
+      },
+    },
+    include: { report: true },
+    orderBy: { report: { reportDate: "asc" } },
+  });
+
+  const dayMap = new Map<
+    string,
+    {
+      date: string;
+      revenue: number;
+      units: number;
+      retailRevenue: number;
+      beltRevenue: number;
+    }
+  >();
+
+  for (const line of lines) {
+    const dateKey = dayjs(line.report.reportDate).format("YYYY-MM-DD");
+    const entry =
+      dayMap.get(dateKey) ?? {
+        date: dateKey,
+        revenue: 0,
+        units: 0,
+        retailRevenue: 0,
+        beltRevenue: 0,
+      };
+    const revenue = Number(line.lineRevenue);
+    entry.revenue += revenue;
+    entry.units += line.quantitySoldUnits;
+    if (line.channel === "RETAIL") {
+      entry.retailRevenue += revenue;
+    } else {
+      entry.beltRevenue += revenue;
+    }
+    dayMap.set(dateKey, entry);
+  }
+
+  let cursor = start.clone();
+  const endBoundary = end.clone();
+  while (cursor.isBefore(endBoundary) || cursor.isSame(endBoundary, "day")) {
+    const key = cursor.format("YYYY-MM-DD");
+    if (!dayMap.has(key)) {
+      dayMap.set(key, {
+        date: key,
+        revenue: 0,
+        units: 0,
+        retailRevenue: 0,
+        beltRevenue: 0,
+      });
+    }
+    cursor = cursor.add(1, "day");
+  }
+
+  const daily = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const totals = daily.reduce(
+    (acc, day) => {
+      acc.totalRevenue += day.revenue;
+      acc.totalUnits += day.units;
+      acc.retailRevenue += day.retailRevenue;
+      acc.beltRevenue += day.beltRevenue;
+      return acc;
+    },
+    { totalRevenue: 0, totalUnits: 0, retailRevenue: 0, beltRevenue: 0 },
+  );
+
+  return {
+    daily,
+    channelMix: {
+      retailRevenue: totals.retailRevenue,
+      beltRevenue: totals.beltRevenue,
+    },
+    summary: {
+      totalRevenue: totals.totalRevenue,
+      totalUnits: totals.totalUnits,
+    },
+  };
+}
+
 function normalizeRange(range: DateRange, defaultDays: number) {
   const end = range.endDate ? dayjs(range.endDate) : dayjs();
   const start = range.startDate ? dayjs(range.startDate) : end.subtract(defaultDays - 1, "day");

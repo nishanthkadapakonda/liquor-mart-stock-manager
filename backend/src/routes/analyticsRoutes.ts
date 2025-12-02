@@ -1,7 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../utils/asyncHandler";
-import { getSalesTimeSeries, getTopItems, getVelocity } from "../services/analyticsService";
+import {
+  getDailyPerformance,
+  getSalesTimeSeries,
+  getTopItems,
+  getVelocity,
+} from "../services/analyticsService";
 import { SalesChannel } from "../types/domain";
 
 const router = Router();
@@ -52,6 +57,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = dateRangeQuery.parse(req.query);
     const data = await getVelocity({ startDate, endDate });
+    res.json(data);
+  }),
+);
+
+router.get(
+  "/daily-performance",
+  asyncHandler(async (req, res) => {
+    const { startDate, endDate } = dateRangeQuery.parse(req.query);
+    const data = await getDailyPerformance({ startDate, endDate });
     res.json(data);
   }),
 );
