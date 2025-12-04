@@ -110,7 +110,12 @@ export async function parsePurchaseUpload(file: File): Promise<ParsedLine<Purcha
       issues.push("Missing size code");
     }
     const packLabelRaw = stringOrEmpty(
-      normalized.pack_qty ?? normalized.pack ?? normalized.pack_qty_size ?? normalized.pack_size,
+      normalized.pack_qty_size_ml ??  // "Pack qty / Size(ml)"
+      normalized.pack_qty_size ??     // "Pack qty / Size"
+      normalized.pack_qty ??          // "Pack/Qty" or "Pack Qty"
+      normalized.pack_size_ml ??      // "Pack Size(ml)"
+      normalized.pack_size ??         // "Pack Size"
+      normalized.pack,
     );
     const packInfo = parsePackLabel(packLabelRaw);
     if (!packInfo.unitsPerPack) {
@@ -118,7 +123,11 @@ export async function parsePurchaseUpload(file: File): Promise<ParsedLine<Purcha
     }
     const packType = stringOrEmpty(normalized.pack_type ?? normalized.issue_type)?.toUpperCase();
     const casesQuantity = numberOrZero(
-      normalized.qty_cases ?? normalized.quantity_cases ?? normalized.cases ?? normalized.qty,
+      normalized.quantity_in_cases ?? // "Quantity(In Cases)"
+      normalized.qty_cases ?? 
+      normalized.quantity_cases ?? 
+      normalized.cases ?? 
+      normalized.qty,
     );
     if (!casesQuantity) {
       issues.push("Missing cases quantity");
@@ -145,11 +154,16 @@ export async function parsePurchaseUpload(file: File): Promise<ParsedLine<Purcha
     if (!unitCostPrice) {
       issues.push("Derived cost per unit missing");
     }
-    const mrp = numberOrZero(normalized.mrp_price ?? normalized.mrp) || unitCostPrice;
+    // MRP is optional - if not provided, backend will use existing item's MRP or default to cost
+    const mrpRaw = numberOrZero(normalized.mrp_price ?? normalized.mrp ?? normalized.mrp_per_unit);
+    const mrp = mrpRaw > 0 ? mrpRaw : unitCostPrice; // Default to cost if no MRP column
+    // Generate SKU from Brand No + Size Code + Issue Type for uniqueness
+    const skuParts = [brandNumber, sizeCode, packType]
+      .filter((part): part is string => Boolean(part))
+      .map((part) => part.trim().replace(/\s+/g, "").toUpperCase());
     const sku =
       stringOrEmpty(normalized.sku) ||
-      [brandNumber, sizeCode].filter(Boolean).join("-") ||
-      undefined;
+      (skuParts.length >= 2 ? skuParts.join("-") : undefined);
     const payload: PurchaseLineInput = {
       sku,
       name: brandName || undefined,
@@ -195,10 +209,27 @@ export async function parseDayEndUpload(file: File): Promise<ParsedLine<DayEndLi
     if (!channelRaw) {
       issues.push("Missing channel");
     }
-    const sku = String(normalized.sku ?? "").trim();
-    const name = String(normalized.item_name ?? normalized.name ?? "").trim();
+    
+    // Try to get SKU directly, or generate from brand_number + size_code + pack_type
+    let sku = String(normalized.sku ?? "").trim();
+    
+    if (!sku) {
+      // Try to generate SKU from component fields
+      const brandNumber = String(normalized.brand_number ?? normalized.brandnumber ?? "").trim().toUpperCase();
+      const sizeCode = String(normalized.size_code ?? normalized.sizecode ?? normalized.size ?? "").trim().toUpperCase();
+      const packType = String(normalized.pack_type ?? normalized.packtype ?? normalized.pack ?? "").trim().toUpperCase();
+      
+      if (brandNumber && sizeCode && packType) {
+        sku = `${brandNumber}-${sizeCode}-${packType}`.replace(/\s+/g, "");
+      } else if (brandNumber && sizeCode) {
+        // Try with just brand number and size code
+        sku = `${brandNumber}-${sizeCode}`.replace(/\s+/g, "");
+      }
+    }
+    
+    const name = String(normalized.item_name ?? normalized.name ?? normalized.brand_name ?? normalized.brandname ?? "").trim();
     if (!sku && !name) {
-      issues.push("Need SKU or item name");
+      issues.push("Need SKU or Brand Number + Size Code");
     }
     const sellingPrice = normalized.selling_price_per_unit
       ? Number(normalized.selling_price_per_unit)
@@ -215,7 +246,7 @@ export async function parseDayEndUpload(file: File): Promise<ParsedLine<DayEndLi
       payload,
       issues,
       row: index + 2,
-      rawName: name,
+      rawName: name || sku,
     };
   });
 }

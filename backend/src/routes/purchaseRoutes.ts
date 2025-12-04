@@ -33,6 +33,8 @@ const purchaseSchema = z.object({
   purchaseDate: z.string(),
   supplierName: z.string().optional(),
   notes: z.string().optional(),
+  taxAmount: z.number().nonnegative().optional(),
+  miscellaneousCharges: z.number().nonnegative().optional(),
   allowItemCreation: z.boolean().optional(),
   lineItems: z.array(purchaseLineSchema).min(1),
 });
@@ -142,6 +144,8 @@ router.post(
       ...(payload.allowItemCreation !== undefined ? { allowItemCreation: payload.allowItemCreation } : {}),
       ...(payload.supplierName ? { supplierName: payload.supplierName } : {}),
       ...(payload.notes ? { notes: payload.notes } : {}),
+      ...(payload.taxAmount !== undefined ? { taxAmount: payload.taxAmount } : {}),
+      ...(payload.miscellaneousCharges !== undefined ? { miscellaneousCharges: payload.miscellaneousCharges } : {}),
     });
     res.status(201).json(result);
   }),
@@ -175,6 +179,8 @@ router.put(
       ...(payload.allowItemCreation !== undefined ? { allowItemCreation: payload.allowItemCreation } : {}),
       ...(payload.supplierName ? { supplierName: payload.supplierName } : {}),
       ...(payload.notes ? { notes: payload.notes } : {}),
+      ...(payload.taxAmount !== undefined ? { taxAmount: payload.taxAmount } : {}),
+      ...(payload.miscellaneousCharges !== undefined ? { miscellaneousCharges: payload.miscellaneousCharges } : {}),
     });
     res.json(result);
   }),

@@ -98,8 +98,10 @@ router.post(
   "/preview",
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const payload = normalizeReportPayload(reportSchema.parse(req.body));
-    const preview = await previewDayEndReport(payload);
+    const body = req.body as { editingReportId?: number } & z.infer<typeof reportSchema>;
+    const payload = normalizeReportPayload(reportSchema.parse(body));
+    const editingReportId = typeof body.editingReportId === "number" ? body.editingReportId : undefined;
+    const preview = await previewDayEndReport(payload, editingReportId);
     res.json(preview);
   }),
 );

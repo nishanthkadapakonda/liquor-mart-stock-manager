@@ -29,6 +29,8 @@ export interface Item {
   volumeMl?: number | null;
   mrpPrice: string | number;
   purchaseCostPrice?: string | number | null;
+  weightedAvgCostPrice?: string | number | null;
+  totalInventoryValue?: string | number | null;
   currentStockUnits: number;
   reorderLevel?: number | null;
   isActive: boolean;
@@ -56,6 +58,8 @@ export interface Purchase {
   purchaseDate: string;
   supplierName?: string | null;
   notes?: string | null;
+  taxAmount?: string | number | null;
+  miscellaneousCharges?: string | number | null;
   totalQuantity?: number;
   totalCost?: number;
   lineItems: PurchaseLineItem[];
@@ -68,6 +72,9 @@ export interface DayEndReportLine {
   quantitySoldUnits: number;
   sellingPricePerUnit: string;
   lineRevenue: string;
+  costPriceAtSale?: string | null;
+  lineCost?: string | null;
+  lineProfit?: string | null;
 }
 
 export interface DayEndReport {
@@ -78,6 +85,8 @@ export interface DayEndReport {
   totalUnitsSold?: number | null;
   retailRevenue?: string | null;
   beltRevenue?: string | null;
+  totalCost?: string | null;
+  totalProfit?: string | null;
   notes?: string | null;
   lines: DayEndReportLine[];
 }
@@ -86,7 +95,7 @@ export interface DashboardSummary {
   totalSales: number;
   totalUnits: number;
   reports: DayEndReport[];
-  topItems: { itemId: number; name: string; units: number; revenue: number }[];
+  topItems: { itemId: number; name: string; sku: string; sizeCode: string | null; packType: string | null; packSizeLabel: string | null; units: number; revenue: number }[];
   latestReport?: DayEndReport | null;
   settings?: AppSettings | null;
   lowStockItems: Item[];
@@ -97,6 +106,9 @@ export interface DayEndPreview {
   totalUnits: number;
   retailRevenue: number;
   beltRevenue: number;
+  totalCost: number;
+  totalProfit: number;
+  profitMargin: number;
   shortages: {
     itemId: number;
     itemName: string;
@@ -115,6 +127,10 @@ export interface TopItemsAnalytics {
   top: {
     itemId: number;
     itemName: string;
+    sku: string | null;
+    sizeCode: string | null;
+    packType: string | null;
+    packSizeLabel: string | null;
     units: number;
     revenue: number;
     currentStock: number;

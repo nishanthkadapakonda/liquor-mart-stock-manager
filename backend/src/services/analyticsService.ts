@@ -27,11 +27,20 @@ export async function getDashboardMetrics(range: DateRange) {
   const totalSales = reports.reduce((sum, r) => sum + Number(r.totalSalesAmount ?? 0), 0);
   const totalUnits = reports.reduce((sum, r) => sum + (r.totalUnitsSold ?? 0), 0);
 
-  const lineMap = new Map<number, { itemId: number; name: string; units: number; revenue: number }>();
+  const lineMap = new Map<number, { itemId: number; name: string; sku: string; sizeCode: string | null; packType: string | null; packSizeLabel: string | null; units: number; revenue: number }>();
   for (const report of reports) {
     for (const line of report.lines) {
       const existing =
-        lineMap.get(line.itemId) ?? { itemId: line.itemId, name: line.item.name, units: 0, revenue: 0 };
+        lineMap.get(line.itemId) ?? { 
+          itemId: line.itemId, 
+          name: line.item.name, 
+          sku: line.item.sku,
+          sizeCode: line.item.sizeCode,
+          packType: line.item.packType,
+          packSizeLabel: line.item.packSizeLabel,
+          units: 0, 
+          revenue: 0 
+        };
       existing.units += line.quantitySoldUnits;
       existing.revenue += Number(line.lineRevenue);
       lineMap.set(line.itemId, existing);
@@ -117,7 +126,17 @@ export async function getTopItems(range: DateRange & { limit?: number; sort?: "r
 
   const map = new Map<
     number,
-    { itemId: number; itemName: string; units: number; revenue: number; currentStock: number }
+    { 
+      itemId: number; 
+      itemName: string; 
+      sku: string | null;
+      sizeCode: string | null;
+      packType: string | null;
+      packSizeLabel: string | null;
+      units: number; 
+      revenue: number; 
+      currentStock: number 
+    }
   >();
   for (const line of lines) {
     const existing =
@@ -125,6 +144,10 @@ export async function getTopItems(range: DateRange & { limit?: number; sort?: "r
       {
         itemId: line.itemId,
         itemName: line.item.name,
+        sku: line.item.sku,
+        sizeCode: line.item.sizeCode,
+        packType: line.item.packType,
+        packSizeLabel: line.item.packSizeLabel,
         units: 0,
         revenue: 0,
         currentStock: line.item.currentStockUnits,

@@ -341,10 +341,16 @@ export function ReportsPage() {
       if (item.reorderLevel == null) return false;
       return item.currentStockUnits < item.reorderLevel;
     }).length;
+    // Calculate total stock value using weighted average cost or MRP as fallback
+    const totalStockValue = activeInventory.reduce((sum, item) => {
+      const costPerUnit = Number(item.weightedAvgCostPrice ?? item.purchaseCostPrice ?? item.mrpPrice ?? 0);
+      return sum + (item.currentStockUnits * costPerUnit);
+    }, 0);
     return {
       totalSkus: activeInventory.length,
       totalUnits,
       lowStock,
+      totalStockValue,
     };
   }, [activeInventory]);
 
@@ -1238,7 +1244,7 @@ export function ReportsPage() {
             </button>
           </div>
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
+        <div className="mt-4 grid gap-4 md:grid-cols-4">
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-center">
             <p className="text-xs uppercase text-slate-500">Active SKUs</p>
             <p className="text-2xl font-semibold text-slate-900">{inventorySnapshot.totalSkus}</p>
@@ -1246,6 +1252,11 @@ export function ReportsPage() {
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-center">
             <p className="text-xs uppercase text-slate-500">Units on hand</p>
             <p className="text-2xl font-semibold text-slate-900">{formatNumber(inventorySnapshot.totalUnits)}</p>
+          </div>
+          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-center">
+            <p className="text-xs uppercase text-emerald-600">Total Stock Value</p>
+            <p className="text-2xl font-semibold text-emerald-700">{formatCurrency(inventorySnapshot.totalStockValue)}</p>
+            <p className="mt-1 text-[10px] text-emerald-500">Based on weighted avg cost</p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-center">
             <p className="text-xs uppercase text-slate-500">Below reorder</p>

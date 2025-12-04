@@ -84,11 +84,71 @@ Visit `http://localhost:5173` and log in with the seeded admin credentials from 
 3. Run `npx prisma migrate deploy && npm run seed` against that database (locally or in CI).
 4. Configure your hosting provider (Render/Railway/Heroku/etc.) with the same environment variables.
 
+## Database Management
+
+### Quick Commands (run from `backend/` folder)
+
+| Command | Description |
+|---------|-------------|
+| `npm run db:reset` | Delete all data, recreate tables (keeps schema) |
+| `npm run db:fresh` | Same as reset - complete fresh start |
+| `npm run seed` | Add sample items, purchases, and reports |
+| `npm run prisma:studio` | Open visual database browser |
+| `npm run prisma:migrate` | Create & apply new migrations (dev only) |
+| `npm run prisma:deploy` | Apply existing migrations (CI/CD or prod) |
+
+### Using Makefile (Linux/Mac/Git Bash/WSL)
+
+```bash
+make db-reset    # Reset database
+make db-seed     # Seed sample data
+make db-studio   # Open Prisma Studio
+make help        # Show all available commands
+```
+
+### What Does `db:reset` Do?
+
+```
+Step 1: DROP all tables (deletes all data)
+            ↓
+Step 2: RE-RUN all migrations (recreates tables)
+            ↓
+Step 3: Empty database with full schema intact ✓
+```
+
+| What | Deleted? | Recreated? |
+|------|----------|------------|
+| **Data** (items, purchases, sales) | ✅ Yes | ❌ No |
+| **Tables** (structure) | ✅ Yes | ✅ Yes |
+| **Schema file** (`schema.prisma`) | ❌ No | N/A |
+| **Migration files** | ❌ No | N/A |
+
+Your schema definition files are **never touched** - only the database contents are reset.
+
+### Complete Fresh Start
+
+```bash
+cd backend
+npm run db:reset    # Wipe all data
+npm run seed        # (Optional) Add sample data
+npm run dev         # Start the server
+```
+
+## Item Matching Logic (Composite Key)
+
+When importing purchases, items are matched using this priority:
+
+1. **Item ID** – Direct database ID (when editing existing purchases)
+2. **SKU** – Unique identifier (e.g., `0019-DD-P`)
+3. **Composite Key** – `brandNumber` + `sizeCode` + `packType`
+
+Example: The same brand can have multiple inventory entries:
+- `0019-DD-P` → McDowells 180ml (48 units, P type)
+- `0019-PP-G` → McDowells 375ml (24 units, G type)
+- `0019-QQ-G` → McDowells 750ml (12 units, G type)
+
 ## Other Helpful Commands
 
-- `npm run prisma:migrate` – create & apply new Prisma migrations (development only)
-- `npm run prisma:deploy` – apply existing migrations (CI/CD or prod)
-- `npm run seed` – idempotent bootstrap script (admin, items, sample reports)
 - `npm run build && npm start` – production build for backend
 
 ## Frontend Notes

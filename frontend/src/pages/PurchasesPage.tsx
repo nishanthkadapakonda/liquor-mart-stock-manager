@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, Fragment, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { api, getErrorMessage } from "../api/client";
@@ -13,6 +13,13 @@ interface ManualLine {
   itemId?: number;
   sku: string;
   name: string;
+  brandNumber: string;
+  productType: string;
+  sizeCode: string;
+  packType: string;
+  packSizeLabel: string;
+  unitsPerPack: string;
+  casesQuantity: string;
   quantityUnits: string;
   mrpPrice: string;
   unitCostPrice: string;
@@ -24,6 +31,13 @@ function emptyLine(): ManualLine {
     itemId: undefined,
     sku: "",
     name: "",
+    brandNumber: "",
+    productType: "",
+    sizeCode: "",
+    packType: "",
+    packSizeLabel: "",
+    unitsPerPack: "",
+    casesQuantity: "",
     quantityUnits: "",
     mrpPrice: "",
     unitCostPrice: "",
@@ -63,17 +77,30 @@ function buildDateRange(days: number) {
   };
 }
 
+// Auto-generate SKU from composite key fields
+function deriveSku(brandNumber: string, sizeCode: string, packType: string): string {
+  const parts = [brandNumber, sizeCode, packType]
+    .filter((part) => part && part.trim())
+    .map((part) => part.trim().replace(/\s+/g, "").toUpperCase());
+  return parts.length >= 2 ? parts.join("-") : "";
+}
+
 export function PurchasesPage() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const canEdit = user?.role === "ADMIN";
   const [purchaseDate, setPurchaseDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [supplierName, setSupplierName] = useState("");
   const [notes, setNotes] = useState("");
+  const [taxAmount, setTaxAmount] = useState("");
+  const [miscellaneousCharges, setMiscellaneousCharges] = useState("");
   const [manualLines, setManualLines] = useState<ManualLine[]>([emptyLine()]);
   const [importPreview, setImportPreview] = useState<ParsedLine<PurchaseLineInput>[]>();
   const [importFileName, setImportFileName] = useState<string | null>(null);
   const [importDate, setImportDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [importSupplier, setImportSupplier] = useState("");
+  const [importTaxAmount, setImportTaxAmount] = useState("");
+  const [importMiscellaneousCharges, setImportMiscellaneousCharges] = useState("");
   const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
   const [activeFilter, setActiveFilter] = useState<PurchaseFilter>(() => {
     const range = buildDateRange(30);
@@ -81,6 +108,8 @@ export function PurchasesPage() {
   });
   const [customRange, setCustomRange] = useState(() => buildDateRange(30));
   const [expandedPurchaseId, setExpandedPurchaseId] = useState<number | null>(null);
+  const [selectedPurchaseIds, setSelectedPurchaseIds] = useState<Set<number>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const purchasesQuery = useQuery({
     queryKey: ["purchases", activeFilter.kind, activeFilter.startDate ?? "NA", activeFilter.endDate ?? "NA"],
@@ -154,40 +183,104 @@ export function PurchasesPage() {
     setManualLines([emptyLine()]);
     setSupplierName("");
     setNotes("");
+    setTaxAmount("");
+    setMiscellaneousCharges("");
     setPurchaseDate(dayjs().format("YYYY-MM-DD"));
     setEditingPurchase(null);
   };
 
+  // Fields that identify a product - changing any of these should clear itemId
+  // to avoid sending conflicting data to the backend
+  const productIdentifyingFields: (keyof ManualLine)[] = [
+    "sku",
+    "name",
+    "brandNumber",
+    "productType",
+    "sizeCode",
+    "packType",
+    "packSizeLabel",
+  ];
+
   const handleManualChange = (id: string, key: keyof ManualLine, value: string) => {
     setManualLines((prev) =>
-      prev.map((line) =>
-        line.id === id
-          ? {
-              ...line,
-              [key]: value,
-              ...(key === "sku" || key === "name" ? { itemId: undefined } : {}),
-            }
-          : line,
-      ),
+      prev.map((line) => {
+        if (line.id !== id) return line;
+        
+        const updated = {
+          ...line,
+          [key]: value,
+          ...(productIdentifyingFields.includes(key) ? { itemId: undefined } : {}),
+        };
+        
+        // Auto-fill SKU when composite key fields change
+        const skuFields: (keyof ManualLine)[] = ["brandNumber", "sizeCode", "packType"];
+        if (skuFields.includes(key)) {
+          updated.sku = deriveSku(updated.brandNumber, updated.sizeCode, updated.packType);
+        }
+        
+        return updated;
+      }),
     );
   };
 
   const handleManualSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const payloadLines = manualLines
-      .filter((line) => line.sku || line.name)
-      .map((line) => ({
-        itemId: line.itemId,
-        sku: line.sku || undefined,
-        name: line.name || undefined,
-        quantityUnits: Number(line.quantityUnits || 0),
-        mrpPrice: Number(line.mrpPrice || 0),
-        unitCostPrice: Number(line.unitCostPrice || line.mrpPrice || 0),
-      }));
+      .filter((line) => line.sku || line.name || line.brandNumber)
+      .map((line) => {
+        const unitsPerPack = line.unitsPerPack !== "" ? Number(line.unitsPerPack) : undefined;
+        const casesQuantity = line.casesQuantity !== "" ? Number(line.casesQuantity) : undefined;
+        const quantityUnits = line.quantityUnits !== ""
+          ? Number(line.quantityUnits)
+          : unitsPerPack !== undefined && casesQuantity !== undefined
+            ? unitsPerPack * casesQuantity
+            : 0;
+        const unitCostPrice = Number(line.unitCostPrice || line.mrpPrice || 0);
+        return {
+          itemId: line.itemId,
+          sku: line.sku || undefined,
+          name: line.name || undefined,
+          brandNumber: line.brandNumber || undefined,
+          productType: line.productType || undefined,
+          sizeCode: line.sizeCode || undefined,
+          packType: line.packType || undefined,
+          packSizeLabel: line.packSizeLabel || undefined,
+          unitsPerPack,
+          casesQuantity,
+          quantityUnits,
+          mrpPrice: Number(line.mrpPrice || 0),
+          unitCostPrice,
+        };
+      });
 
     if (payloadLines.length === 0) {
       toast.error("Add at least one line item");
       return;
+    }
+
+    // Validate each line has required fields
+    for (let i = 0; i < payloadLines.length; i++) {
+      const line = payloadLines[i];
+      const lineNum = i + 1;
+
+      // Name is ALWAYS required for new items (backend needs it to create items)
+      // Even if brandNumber+sizeCode is provided, if no match is found, name is needed
+      if (!line.itemId && !line.name) {
+        toast.error(`Line ${lineNum}: Brand Name is required to create new items`);
+        return;
+      }
+
+      // Quantity must be positive
+      if (!line.quantityUnits || line.quantityUnits <= 0) {
+        toast.error(`Line ${lineNum}: Quantity must be greater than 0`);
+        return;
+      }
+
+      // MRP is required
+      if (line.mrpPrice === undefined || line.mrpPrice < 0) {
+        toast.error(`Line ${lineNum}: MRP price is required`);
+        return;
+      }
     }
 
     try {
@@ -196,22 +289,28 @@ export function PurchasesPage() {
           purchaseDate,
           supplierName: supplierName || undefined,
           notes: notes || undefined,
+          taxAmount: taxAmount ? Number(taxAmount) : undefined,
+          miscellaneousCharges: miscellaneousCharges ? Number(miscellaneousCharges) : undefined,
           lineItems: payloadLines,
           allowItemCreation: true,
         });
-        toast.success("Purchase updated");
+        toast.success("Purchase updated - items updated");
       } else {
         await api.post("/purchases", {
           purchaseDate,
           supplierName: supplierName || undefined,
           notes: notes || undefined,
+          taxAmount: taxAmount ? Number(taxAmount) : undefined,
+          miscellaneousCharges: miscellaneousCharges ? Number(miscellaneousCharges) : undefined,
           lineItems: payloadLines,
           allowItemCreation: true,
         });
-        toast.success("Purchase saved");
+        toast.success("Purchase saved - items updated");
       }
       resetManualForm();
       purchasesQuery.refetch();
+      // Invalidate items queries so Items page fetches fresh data
+      queryClient.invalidateQueries({ queryKey: ["items"] });
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -249,14 +348,20 @@ export function PurchasesPage() {
       await api.post("/purchases/import", {
         purchaseDate: importDate,
         supplierName: importSupplier,
+        taxAmount: importTaxAmount ? Number(importTaxAmount) : undefined,
+        miscellaneousCharges: importMiscellaneousCharges ? Number(importMiscellaneousCharges) : undefined,
         lineItems: importPreview.map((line) => line.payload),
         allowItemCreation: true,
       });
-      toast.success("Import completed");
+      toast.success("Import completed - items updated");
       setImportPreview(undefined);
       setImportFileName(null);
       setImportSupplier("");
+      setImportTaxAmount("");
+      setImportMiscellaneousCharges("");
       purchasesQuery.refetch();
+      // Invalidate items queries so Items page fetches fresh data
+      queryClient.invalidateQueries({ queryKey: ["items"] });
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -276,6 +381,21 @@ export function PurchasesPage() {
           itemId: line.item.id,
           sku: line.item.sku ?? "",
           name: line.item.name ?? "",
+          brandNumber: line.brandNumber ?? line.item.brandNumber ?? "",
+          productType: line.productType ?? line.item.productType ?? "",
+          sizeCode: line.sizeCode ?? line.item.sizeCode ?? "",
+          packType: line.packType ?? line.item.packType ?? "",
+          packSizeLabel: line.packSizeLabel ?? line.item.packSizeLabel ?? "",
+          unitsPerPack:
+            line.unitsPerCase !== null && line.unitsPerCase !== undefined
+              ? String(line.unitsPerCase)
+              : line.item.unitsPerPack !== null && line.item.unitsPerPack !== undefined
+                ? String(line.item.unitsPerPack)
+                : "",
+          casesQuantity:
+            line.casesQuantity !== null && line.casesQuantity !== undefined
+              ? String(line.casesQuantity)
+              : "",
           quantityUnits: String(line.quantityUnits ?? 0),
           mrpPrice:
             line.mrpPriceAtPurchase !== null && line.mrpPriceAtPurchase !== undefined
@@ -301,15 +421,68 @@ export function PurchasesPage() {
     }
     try {
       await api.delete(`/purchases/${purchaseId}`);
-      toast.success("Purchase deleted");
+      toast.success("Purchase deleted - items updated");
       if (editingPurchase?.id === purchaseId) {
         resetManualForm();
       }
       setExpandedPurchaseId((current) => (current === purchaseId ? null : current));
+      setSelectedPurchaseIds((prev) => {
+        const next = new Set(prev);
+        next.delete(purchaseId);
+        return next;
+      });
       purchasesQuery.refetch();
+      // Invalidate items queries since stock levels changed
+      queryClient.invalidateQueries({ queryKey: ["items"] });
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
+  };
+
+  const handleBulkDeletePurchases = async () => {
+    if (selectedPurchaseIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedPurchaseIds.size} purchase(s)? Stock levels will be adjusted.`)) {
+      return;
+    }
+    setIsBulkDeleting(true);
+    try {
+      await Promise.all(Array.from(selectedPurchaseIds).map((id) => api.delete(`/purchases/${id}`)));
+      toast.success(`${selectedPurchaseIds.size} purchase(s) deleted - items updated`);
+      if (editingPurchase && selectedPurchaseIds.has(editingPurchase.id)) {
+        resetManualForm();
+      }
+      setExpandedPurchaseId((current) =>
+        current && selectedPurchaseIds.has(current) ? null : current
+      );
+      setSelectedPurchaseIds(new Set());
+      purchasesQuery.refetch();
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  const toggleSelectAllPurchases = () => {
+    const purchases = purchasesQuery.data ?? [];
+    if (selectedPurchaseIds.size === purchases.length) {
+      setSelectedPurchaseIds(new Set());
+    } else {
+      setSelectedPurchaseIds(new Set(purchases.map((p) => p.id)));
+    }
+  };
+
+  const toggleSelectPurchase = (id: number) => {
+    setSelectedPurchaseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   };
 
   return (
@@ -384,70 +557,189 @@ export function PurchasesPage() {
               />
             </div>
 
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-slate-500">Tax Amount (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={taxAmount}
+                  onChange={(e) => setTaxAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Miscellaneous Charges (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={miscellaneousCharges}
+                  onChange={(e) => setMiscellaneousCharges(e.target.value)}
+                  placeholder="0.00"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                />
+              </div>
+            </div>
+
             <div className="mt-4 space-y-3">
               {manualLines.map((line, idx) => (
-                <div key={line.id} className="grid gap-3 rounded-2xl border border-slate-100 p-3 md:grid-cols-5">
-                  <div className="md:col-span-2">
-                    <label className="text-xs text-slate-500">SKU / Item name</label>
-                    <div className="mt-1 flex gap-2">
+                <div key={line.id} className="space-y-3 rounded-2xl border border-slate-100 p-3">
+                  {/* Row 1: Brand # / Size Code / Issue Type (Primary Key) */}
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <div>
+                      <label className="text-xs text-slate-500 font-medium">Brand # *</label>
                       <input
                         type="text"
-                        placeholder="SKU"
-                        value={line.sku}
-                        onChange={(e) => handleManualChange(line.id, "sku", e.target.value)}
-                        className="w-1/2 rounded-lg border border-slate-200 px-2 py-2"
+                        placeholder="e.g. 5016"
+                        value={line.brandNumber}
+                        onChange={(e) => handleManualChange(line.id, "brandNumber", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
                       />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 font-medium">Size Code *</label>
                       <input
                         type="text"
-                        placeholder="Name"
-                        value={line.name}
-                        onChange={(e) => handleManualChange(line.id, "name", e.target.value)}
-                        className="w-1/2 rounded-lg border border-slate-200 px-2 py-2"
+                        placeholder="e.g. BE, DD, PP"
+                        value={line.sizeCode}
+                        onChange={(e) => handleManualChange(line.id, "sizeCode", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 font-medium">Issue Type *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. S, P, G"
+                        value={line.packType}
+                        onChange={(e) => handleManualChange(line.id, "packType", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Product Type</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Beer, IML"
+                        value={line.productType}
+                        onChange={(e) => handleManualChange(line.id, "productType", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
                       />
                     </div>
                   </div>
-                  <div>
-                    <label className="text-xs text-slate-500">Quantity</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={line.quantityUnits}
-                      onChange={(e) => handleManualChange(line.id, "quantityUnits", e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
-                      required
-                    />
+
+                  {/* Row 2: Brand Name / Pack-Qty / Units per case */}
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div>
+                      <label className="text-xs text-slate-500 font-medium">Brand Name *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. KING FISHER PREMIUM"
+                        value={line.name}
+                        onChange={(e) => handleManualChange(line.id, "name", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Pack/Qty</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 12 / 650ml"
+                        value={line.packSizeLabel}
+                        onChange={(e) => handleManualChange(line.id, "packSizeLabel", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">SKU (auto-generated)</label>
+                      <input
+                        type="text"
+                        placeholder="Brand# + Size + Issue"
+                        value={line.sku}
+                        readOnly
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 bg-slate-50 text-slate-500 cursor-not-allowed"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs text-slate-500">MRP</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={line.mrpPrice}
-                      onChange={(e) => handleManualChange(line.id, "mrpPrice", e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
-                      required
-                    />
+
+                  {/* Row 3: Units/case / Cases / Total units */}
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div>
+                      <label className="text-xs text-slate-500">Units/case</label>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="e.g. 12"
+                        value={line.unitsPerPack}
+                        onChange={(e) => handleManualChange(line.id, "unitsPerPack", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 font-medium">Qty (Cases) *</label>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="# cases"
+                        value={line.casesQuantity}
+                        onChange={(e) => handleManualChange(line.id, "casesQuantity", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Total units</label>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="Auto: cases × units"
+                        value={line.quantityUnits}
+                        onChange={(e) => handleManualChange(line.id, "quantityUnits", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 bg-slate-50"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs text-slate-500">Cost</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={line.unitCostPrice}
-                      onChange={(e) => handleManualChange(line.id, "unitCostPrice", e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
-                    />
+
+                  {/* Row 4: Cost Price / MRP */}
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="text-xs text-slate-500 font-medium">Cost Price (per case) *</label>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="Issue price"
+                        value={line.unitCostPrice}
+                        onChange={(e) => handleManualChange(line.id, "unitCostPrice", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">MRP (per unit, optional)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="Uses existing if empty"
+                        value={line.mrpPrice}
+                        onChange={(e) => handleManualChange(line.id, "mrpPrice", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 bg-slate-50"
+                      />
+                    </div>
                   </div>
+
                   {manualLines.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setManualLines((prev) => prev.filter((entry) => entry.id !== line.id))
-                      }
-                      className="text-xs font-semibold text-red-500"
-                    >
-                      Remove line {idx + 1}
-                    </button>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setManualLines((prev) => prev.filter((entry) => entry.id !== line.id))
+                        }
+                        className="text-xs font-semibold text-red-500 hover:underline"
+                      >
+                        Remove line {idx + 1}
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -474,8 +766,10 @@ export function PurchasesPage() {
         <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-base font-semibold text-slate-900">Import CSV / XLSX</p>
           <p className="text-sm text-slate-500">
-            Columns: brand_no, brand_name, product_type, size_code, pack_qty, issue_type, qty_cases, issue_price,
-            total_price
+            Required: Brand No, Brand Name, Product Type, Size Code, Pack/Qty, Issue Type, Qty (Cases), Issue Price
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Issue Price = cost per case • Optional: MRP column (if not provided, existing MRP is kept)
           </p>
           {!canEdit && (
             <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -525,6 +819,32 @@ export function PurchasesPage() {
                 />
               </div>
             </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="text-xs text-slate-500">Tax Amount (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={importTaxAmount}
+                  onChange={(e) => setImportTaxAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500">Miscellaneous Charges (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={importMiscellaneousCharges}
+                  onChange={(e) => setImportMiscellaneousCharges(e.target.value)}
+                  placeholder="0.00"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                />
+              </div>
+            </div>
             {importPreview && importPreview.length > 0 && (
               <div className="space-y-3">
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -543,16 +863,34 @@ export function PurchasesPage() {
                     </span>
                   </p>
                   {importSummary.linesWithIssues > 0 && (
-                    <p className="text-red-500">
-                      {importSummary.linesWithIssues} rows need attention before import.
+                    <p className="mt-2 font-semibold text-red-600">
+                      ⚠️ {importSummary.linesWithIssues} rows have issues - fix them before importing
                     </p>
                   )}
                 </div>
+                {/* Show unique issues summary */}
+                {importSummary.linesWithIssues > 0 && (
+                  <div className="rounded-xl border-2 border-red-200 bg-red-50 p-4">
+                    <p className="font-semibold text-red-700">Issues found:</p>
+                    <ul className="mt-2 space-y-1 text-sm text-red-600">
+                      {Array.from(new Set(importPreview.flatMap(line => line.issues))).map((issue, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="text-red-400">•</span>
+                          <span>{issue}</span>
+                          <span className="text-red-400">
+                            ({importPreview.filter(l => l.issues.includes(issue)).length} rows)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <div className="max-h-72 overflow-auto rounded-xl border border-slate-100">
                   <table className="min-w-full text-xs">
                     <thead className="bg-slate-50 text-left uppercase text-slate-400">
                       <tr>
                         <th className="px-3 py-2">Row</th>
+                        <th className="px-3 py-2">SKU</th>
                         <th className="px-3 py-2">Brand / Name</th>
                         <th className="px-3 py-2">Size</th>
                         <th className="px-3 py-2">Pack</th>
@@ -565,8 +903,20 @@ export function PurchasesPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {importPreview.map((line) => (
-                        <tr key={`${line.row}-${line.payload.sku ?? line.rawName ?? line.row}`}>
+                        <tr 
+                          key={`${line.row}-${line.payload.sku ?? line.rawName ?? line.row}`}
+                          className={line.issues.length > 0 ? "bg-red-50" : ""}
+                        >
                           <td className="px-3 py-2">{line.row}</td>
+                          <td className="px-3 py-2">
+                            <p className="font-mono text-xs text-brand-600">
+                              {deriveSku(
+                                line.payload.brandNumber ?? "",
+                                line.payload.sizeCode ?? "",
+                                line.payload.packType ?? ""
+                              ) || "—"}
+                            </p>
+                          </td>
                           <td className="px-3 py-2">
                             <p className="font-semibold uppercase text-slate-900">
                               #{line.payload.brandNumber ?? "—"}
@@ -586,8 +936,18 @@ export function PurchasesPage() {
                           <td className="px-3 py-2 text-right">
                             {line.payload.lineTotalPrice ? formatCurrency(line.payload.lineTotalPrice) : "—"}
                           </td>
-                          <td className="px-3 py-2 text-red-500">
-                            {line.issues.length ? line.issues.join(", ") : "OK"}
+                          <td className="px-3 py-2">
+                            {line.issues.length > 0 ? (
+                              <div className="space-y-1">
+                                {line.issues.map((issue, idx) => (
+                                  <p key={idx} className="rounded bg-red-100 px-2 py-0.5 text-red-700">
+                                    {issue}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-emerald-600">✓ OK</span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -673,14 +1033,34 @@ export function PurchasesPage() {
       </div>
 
       <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-base font-semibold text-slate-900">Recent purchases</p>
-          <span className="text-xs text-slate-500">Showing {activeFilterLabel}</span>
+          <span className="flex-1 text-xs text-slate-500">Showing {activeFilterLabel}</span>
+          {canEdit && selectedPurchaseIds.size > 0 && (
+            <button
+              type="button"
+              onClick={handleBulkDeletePurchases}
+              disabled={isBulkDeleting}
+              className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+            >
+              {isBulkDeleting ? "Deleting..." : `Delete (${selectedPurchaseIds.size})`}
+            </button>
+          )}
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-400">
               <tr>
+                {canEdit && (
+                  <th className="w-10 py-2">
+                    <input
+                      type="checkbox"
+                      checked={(purchasesQuery.data?.length ?? 0) > 0 && selectedPurchaseIds.size === (purchasesQuery.data?.length ?? 0)}
+                      onChange={toggleSelectAllPurchases}
+                      className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                  </th>
+                )}
                 <th className="py-2">Date</th>
                 <th className="py-2">Supplier</th>
                 <th className="py-2">Lines</th>
@@ -693,16 +1073,29 @@ export function PurchasesPage() {
               {(purchasesQuery.data ?? []).map((purchase) => {
                 const totalQuantity =
                   purchase.lineItems?.reduce((sum, line) => sum + line.quantityUnits, 0) ?? 0;
-                const totalCost =
+                const itemsCost =
                   purchase.totalCost ??
                   purchase.lineItems?.reduce(
                     (sum, line) => sum + Number(line.unitCostPrice ?? 0) * line.quantityUnits,
                     0,
                   ) ??
                   0;
+                const taxAmount = Number(purchase.taxAmount ?? 0);
+                const miscellaneousCharges = Number(purchase.miscellaneousCharges ?? 0);
+                const totalCost = itemsCost + taxAmount + miscellaneousCharges;
                 return (
                   <Fragment key={purchase.id}>
-                    <tr>
+                    <tr className={selectedPurchaseIds.has(purchase.id) ? "bg-brand-50" : ""}>
+                      {canEdit && (
+                        <td className="py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedPurchaseIds.has(purchase.id)}
+                            onChange={() => toggleSelectPurchase(purchase.id)}
+                            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                          />
+                        </td>
+                      )}
                       <td className="py-2 text-slate-900">
                         {dayjs(purchase.purchaseDate).format("DD MMM YYYY")}
                       </td>
@@ -752,7 +1145,7 @@ export function PurchasesPage() {
                     </tr>
                     {expandedPurchaseId === purchase.id && (
                       <tr>
-                        <td colSpan={6} className="bg-slate-50 px-4 py-3">
+                        <td colSpan={canEdit ? 7 : 6} className="bg-slate-50 px-4 py-3">
                           <div className="space-y-3 text-xs text-slate-600">
                             <div className="flex flex-wrap justify-between gap-3">
                               <div>
@@ -763,57 +1156,63 @@ export function PurchasesPage() {
                               </div>
                               <div className="text-right font-semibold text-slate-900">
                                 <p>Total units: {formatNumber(totalQuantity)}</p>
-                                <p>Total cost: {formatCurrency(totalCost)}</p>
+                                <p>Items cost: {formatCurrency(itemsCost)}</p>
+                                {Number(purchase.taxAmount ?? 0) > 0 && (
+                                  <p className="text-sm text-slate-600">Tax: {formatCurrency(Number(purchase.taxAmount ?? 0))}</p>
+                                )}
+                                {Number(purchase.miscellaneousCharges ?? 0) > 0 && (
+                                  <p className="text-sm text-slate-600">Misc: {formatCurrency(Number(purchase.miscellaneousCharges ?? 0))}</p>
+                                )}
+                                <p className="text-lg">Total cost: {formatCurrency(totalCost)}</p>
                               </div>
                             </div>
                             <div className="overflow-x-auto">
                               <table className="min-w-full text-[11px]">
                                 <thead className="text-left uppercase text-slate-400">
                                   <tr>
-                                    <th className="py-1">Item</th>
-                                    <th className="py-1">SKU</th>
-                                    <th className="py-1">Pack</th>
+                                    <th className="py-1">Brand No / Name</th>
+                                    <th className="py-1">Type</th>
+                                    <th className="py-1">Size</th>
+                                    <th className="py-1">Pack/Qty</th>
+                                    <th className="py-1">Issue</th>
                                     <th className="py-1 text-right">Cases</th>
                                     <th className="py-1 text-right">Units</th>
-                                    <th className="py-1 text-right">Unit cost</th>
-                                    <th className="py-1 text-right">MRP</th>
+                                    <th className="py-1 text-right">Issue Price</th>
                                     <th className="py-1 text-right">Line total</th>
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200">
                                   {purchase.lineItems.map((line) => {
                                     const unitCost = Number(line.unitCostPrice ?? 0);
-                                    const mrpAtPurchase =
-                                      line.mrpPriceAtPurchase !== null &&
-                                      line.mrpPriceAtPurchase !== undefined
-                                        ? Number(line.mrpPriceAtPurchase)
-                                        : Number(line.item.mrpPrice ?? 0);
                                     const lineTotalCost =
                                       line.lineTotalPrice !== null && line.lineTotalPrice !== undefined
                                         ? Number(line.lineTotalPrice)
                                         : unitCost * line.quantityUnits;
                                     return (
                                       <tr key={line.id}>
-                                        <td className="py-1 font-semibold text-slate-900">
-                                          <p>{line.item.name}</p>
-                                          <p className="text-[11px] uppercase text-slate-400">
-                                            Brand #{line.brandNumber ?? line.item.brandNumber ?? "—"}
+                                        <td className="py-1">
+                                          <p className="font-semibold text-slate-900">
+                                            #{line.brandNumber ?? line.item.brandNumber ?? "—"}
                                           </p>
+                                          <p className="text-slate-600">{line.item.name}</p>
                                         </td>
-                                        <td className="py-1 text-slate-500">{line.item.sku ?? "—"}</td>
+                                        <td className="py-1 text-slate-500">
+                                          {line.productType ?? line.item.productType ?? "—"}
+                                        </td>
+                                        <td className="py-1 text-slate-500">
+                                          {line.sizeCode ?? line.item.sizeCode ?? "—"}
+                                        </td>
                                         <td className="py-1 text-slate-600">
-                                          <p>{line.packSizeLabel ?? line.item.packSizeLabel ?? "—"}</p>
-                                          <p className="text-[11px] uppercase text-slate-400">
-                                            {line.sizeCode ?? line.item.sizeCode ?? "—"}{" "}
-                                            {line.packType ? `• ${line.packType}` : ""}
-                                          </p>
+                                          {line.packSizeLabel ?? line.item.packSizeLabel ?? "—"}
+                                        </td>
+                                        <td className="py-1 text-slate-500">
+                                          {line.packType ?? "—"}
                                         </td>
                                         <td className="py-1 text-right">
                                           {formatNumber(line.casesQuantity ?? 0)}
                                         </td>
                                         <td className="py-1 text-right">{formatNumber(line.quantityUnits)}</td>
                                         <td className="py-1 text-right">{formatCurrency(unitCost)}</td>
-                                        <td className="py-1 text-right">{formatCurrency(mrpAtPurchase)}</td>
                                         <td className="py-1 text-right font-semibold text-slate-900">
                                           {formatCurrency(lineTotalCost)}
                                         </td>
@@ -832,7 +1231,7 @@ export function PurchasesPage() {
               })}
               {(purchasesQuery.data?.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-slate-500">
+                  <td colSpan={canEdit ? 7 : 6} className="py-6 text-center text-slate-500">
                     No purchases recorded for this range.
                   </td>
                 </tr>

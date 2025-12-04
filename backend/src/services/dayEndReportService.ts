@@ -2,6 +2,11 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { SalesChannel } from "../types/domain";
 
+// Helper function to round prices to 2 decimal places
+function roundPrice(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 export interface DayEndLineInput {
   itemId?: number;
   sku?: string;
@@ -26,14 +31,39 @@ interface PreparedLine {
   mrpPrice: number;
   sellingPricePerUnit: number;
   lineRevenue: number;
+  costPriceAtSale: number;              // Base cost per unit (without tax/misc)
+  costPriceAtSaleWithCharges: number;   // Total cost per unit (with tax/misc)
+  lineCost: number;                      // Gross cost (without tax/misc)
+  lineCostWithCharges: number;          // Net cost (with tax/misc)
+  lineProfit: number;                    // Gross profit (revenue - base cost)
+  lineNetProfit: number;                // Net profit (revenue - total cost)
 }
 
-export async function previewDayEndReport(input: DayEndReportInput) {
+export async function previewDayEndReport(input: DayEndReportInput, editingReportId?: number) {
   if (input.lines.length === 0) {
     throw new Error("At least one line is required");
   }
   const beltMarkup = await resolveBeltMarkup(input);
-  const prepared = await prepareLines(input, beltMarkup);
+  
+  // If editing an existing report, calculate stock being restored
+  let stockBeingRestored: Map<number, number> | undefined;
+  if (editingReportId) {
+    const existing = await prisma.dayEndReport.findUnique({
+      where: { id: editingReportId },
+      include: { lines: true },
+    });
+    if (existing) {
+      stockBeingRestored = new Map();
+      for (const line of existing.lines) {
+        stockBeingRestored.set(
+          line.itemId,
+          (stockBeingRestored.get(line.itemId) ?? 0) + line.quantitySoldUnits
+        );
+      }
+    }
+  }
+  
+  const prepared = await prepareLines(input, beltMarkup, undefined, stockBeingRestored);
   const shortages = prepared.shortages;
   const summary = summarize(prepared.lines);
   return { ...summary, shortages, beltMarkupRupees: beltMarkup };
@@ -42,6 +72,16 @@ export async function previewDayEndReport(input: DayEndReportInput) {
 export async function createDayEndReport(input: DayEndReportInput) {
   if (input.lines.length === 0) {
     throw new Error("At least one line is required");
+  }
+
+  // Check if a report already exists for this date
+  const existingReport = await prisma.dayEndReport.findUnique({
+    where: { reportDate: new Date(input.reportDate) },
+  });
+  if (existingReport) {
+    throw new Error(
+      `A day-end report already exists for ${new Date(input.reportDate).toLocaleDateString()}. Please edit the existing report instead.`
+    );
   }
 
   const beltMarkup = await resolveBeltMarkup(input);
@@ -60,11 +100,15 @@ export async function createDayEndReport(input: DayEndReportInput) {
     const report = await tx.dayEndReport.create({
       data: {
         reportDate: new Date(input.reportDate),
-        beltMarkupRupees: new Prisma.Decimal(beltMarkup),
-        totalSalesAmount: new Prisma.Decimal(summary.totalRevenue),
+        beltMarkupRupees: new Prisma.Decimal(roundPrice(beltMarkup)),
+        totalSalesAmount: new Prisma.Decimal(roundPrice(summary.totalRevenue)),
         totalUnitsSold: summary.totalUnits,
-        retailRevenue: new Prisma.Decimal(summary.retailRevenue),
-        beltRevenue: new Prisma.Decimal(summary.beltRevenue),
+        retailRevenue: new Prisma.Decimal(roundPrice(summary.retailRevenue)),
+        beltRevenue: new Prisma.Decimal(roundPrice(summary.beltRevenue)),
+        totalCost: new Prisma.Decimal(roundPrice(summary.totalCost)),
+        totalCostWithCharges: new Prisma.Decimal(roundPrice(summary.totalCostWithCharges)),
+        totalProfit: new Prisma.Decimal(roundPrice(summary.totalProfit)),
+        totalNetProfit: new Prisma.Decimal(roundPrice(summary.totalNetProfit)),
         notes: input.notes ?? null,
       },
     });
@@ -76,18 +120,47 @@ export async function createDayEndReport(input: DayEndReportInput) {
           itemId: line.itemId,
           channel: line.channel,
           quantitySoldUnits: line.quantitySoldUnits,
-          mrpPrice: new Prisma.Decimal(line.mrpPrice),
-          sellingPricePerUnit: new Prisma.Decimal(line.sellingPricePerUnit),
-          lineRevenue: new Prisma.Decimal(line.lineRevenue),
+          mrpPrice: new Prisma.Decimal(roundPrice(line.mrpPrice)),
+          sellingPricePerUnit: new Prisma.Decimal(roundPrice(line.sellingPricePerUnit)),
+          lineRevenue: new Prisma.Decimal(roundPrice(line.lineRevenue)),
+          costPriceAtSale: new Prisma.Decimal(roundPrice(line.costPriceAtSale)),
+          costPriceAtSaleWithCharges: new Prisma.Decimal(roundPrice(line.costPriceAtSaleWithCharges)),
+          lineCost: new Prisma.Decimal(roundPrice(line.lineCost)),
+          lineCostWithCharges: new Prisma.Decimal(roundPrice(line.lineCostWithCharges)),
+          lineProfit: new Prisma.Decimal(roundPrice(line.lineProfit)),
+          lineNetProfit: new Prisma.Decimal(roundPrice(line.lineNetProfit)),
         },
       });
     }
 
     for (const agg of prepared.aggregated.values()) {
+      // Get current item to calculate new inventory value
+      const item = await tx.item.findUnique({ where: { id: agg.itemId } });
+      if (!item) {
+        throw new Error(`Item not found: ${agg.itemName}`);
+      }
+      
+      const currentStock = item.currentStockUnits;
+      const newStock = currentStock - agg.quantity;
+      
+      // Final safeguard: prevent negative stock
+      if (newStock < 0) {
+        throw new Error(
+          `Insufficient stock for ${agg.itemName}: need ${agg.quantity}, only ${currentStock} available`
+        );
+      }
+      
+      const weightedAvg = Number(item.weightedAvgCostPrice ?? 0);
+      const weightedAvgWithCharges = Number(item.weightedAvgTotalCostPrice ?? item.weightedAvgCostPrice ?? 0);
+      const newTotalValue = weightedAvg * newStock;
+      const newTotalValueWithCharges = weightedAvgWithCharges * newStock;
+      
       await tx.item.update({
         where: { id: agg.itemId },
         data: {
-          currentStockUnits: { decrement: agg.quantity },
+          currentStockUnits: newStock,
+          totalInventoryValue: newTotalValue > 0 ? new Prisma.Decimal(roundPrice(newTotalValue)) : null,
+          totalInventoryValueWithCharges: newTotalValueWithCharges > 0 ? new Prisma.Decimal(roundPrice(newTotalValueWithCharges)) : null,
         },
       });
     }
@@ -115,19 +188,35 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
       throw new Error("Report not found");
     }
 
+    // Build a map of stock being restored (for accurate availability calculation)
+    const stockBeingRestored = new Map<number, number>();
+    
     // rollback previous stock impact
     for (const line of existing.lines) {
+      const item = await tx.item.findUnique({ where: { id: line.itemId } });
+      const weightedAvg = Number(item?.weightedAvgCostPrice ?? 0);
+      const newStock = (item?.currentStockUnits ?? 0) + line.quantitySoldUnits;
+      const newTotalValue = weightedAvg * newStock;
+      
       await tx.item.update({
         where: { id: line.itemId },
         data: {
           currentStockUnits: { increment: line.quantitySoldUnits },
+          totalInventoryValue: newTotalValue > 0 ? new Prisma.Decimal(roundPrice(newTotalValue)) : null,
         },
       });
+      
+      // Track restored stock for availability calculation
+      stockBeingRestored.set(
+        line.itemId,
+        (stockBeingRestored.get(line.itemId) ?? 0) + line.quantitySoldUnits
+      );
     }
 
     await tx.dayEndReportLine.deleteMany({ where: { reportId } });
 
-    const prepared = await prepareLines(input, beltMarkup, tx);
+    // Pass the restored stock info to prepareLines for accurate availability check
+    const prepared = await prepareLines(input, beltMarkup, tx, stockBeingRestored);
     if (prepared.shortages.length > 0) {
       throw new Error(
         `Cannot update report. Items with insufficient stock: ${prepared.shortages
@@ -141,11 +230,15 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
       where: { id: reportId },
       data: {
         reportDate: new Date(input.reportDate),
-        beltMarkupRupees: new Prisma.Decimal(beltMarkup),
-        totalSalesAmount: new Prisma.Decimal(summary.totalRevenue),
+        beltMarkupRupees: new Prisma.Decimal(roundPrice(beltMarkup)),
+        totalSalesAmount: new Prisma.Decimal(roundPrice(summary.totalRevenue)),
         totalUnitsSold: summary.totalUnits,
-        retailRevenue: new Prisma.Decimal(summary.retailRevenue),
-        beltRevenue: new Prisma.Decimal(summary.beltRevenue),
+        retailRevenue: new Prisma.Decimal(roundPrice(summary.retailRevenue)),
+        beltRevenue: new Prisma.Decimal(roundPrice(summary.beltRevenue)),
+        totalCost: new Prisma.Decimal(roundPrice(summary.totalCost)),
+        totalCostWithCharges: new Prisma.Decimal(roundPrice(summary.totalCostWithCharges)),
+        totalProfit: new Prisma.Decimal(roundPrice(summary.totalProfit)),
+        totalNetProfit: new Prisma.Decimal(roundPrice(summary.totalNetProfit)),
         notes: input.notes ?? null,
       },
     });
@@ -157,18 +250,47 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
           itemId: line.itemId,
           channel: line.channel,
           quantitySoldUnits: line.quantitySoldUnits,
-          mrpPrice: new Prisma.Decimal(line.mrpPrice),
-          sellingPricePerUnit: new Prisma.Decimal(line.sellingPricePerUnit),
-          lineRevenue: new Prisma.Decimal(line.lineRevenue),
+          mrpPrice: new Prisma.Decimal(roundPrice(line.mrpPrice)),
+          sellingPricePerUnit: new Prisma.Decimal(roundPrice(line.sellingPricePerUnit)),
+          lineRevenue: new Prisma.Decimal(roundPrice(line.lineRevenue)),
+          costPriceAtSale: new Prisma.Decimal(roundPrice(line.costPriceAtSale)),
+          costPriceAtSaleWithCharges: new Prisma.Decimal(roundPrice(line.costPriceAtSaleWithCharges)),
+          lineCost: new Prisma.Decimal(roundPrice(line.lineCost)),
+          lineCostWithCharges: new Prisma.Decimal(roundPrice(line.lineCostWithCharges)),
+          lineProfit: new Prisma.Decimal(roundPrice(line.lineProfit)),
+          lineNetProfit: new Prisma.Decimal(roundPrice(line.lineNetProfit)),
         },
       });
     }
 
     for (const agg of prepared.aggregated.values()) {
+      // Get current item to calculate new inventory value
+      const item = await tx.item.findUnique({ where: { id: agg.itemId } });
+      if (!item) {
+        throw new Error(`Item not found: ${agg.itemName}`);
+      }
+      
+      const currentStock = item.currentStockUnits;
+      const newStock = currentStock - agg.quantity;
+      
+      // Final safeguard: prevent negative stock
+      if (newStock < 0) {
+        throw new Error(
+          `Insufficient stock for ${agg.itemName}: need ${agg.quantity}, only ${currentStock} available`
+        );
+      }
+      
+      const weightedAvg = Number(item.weightedAvgCostPrice ?? 0);
+      const weightedAvgWithCharges = Number(item.weightedAvgTotalCostPrice ?? item.weightedAvgCostPrice ?? 0);
+      const newTotalValue = weightedAvg * newStock;
+      const newTotalValueWithCharges = weightedAvgWithCharges * newStock;
+      
       await tx.item.update({
         where: { id: agg.itemId },
         data: {
-          currentStockUnits: { decrement: agg.quantity },
+          currentStockUnits: newStock,
+          totalInventoryValue: newTotalValue > 0 ? new Prisma.Decimal(roundPrice(newTotalValue)) : null,
+          totalInventoryValueWithCharges: newTotalValueWithCharges > 0 ? new Prisma.Decimal(roundPrice(newTotalValueWithCharges)) : null,
         },
       });
     }
@@ -191,10 +313,16 @@ export async function deleteDayEndReport(reportId: number) {
     }
 
     for (const line of existing.lines) {
+      const item = await tx.item.findUnique({ where: { id: line.itemId } });
+      const weightedAvg = Number(item?.weightedAvgCostPrice ?? 0);
+      const newStock = (item?.currentStockUnits ?? 0) + line.quantitySoldUnits;
+      const newTotalValue = weightedAvg * newStock;
+      
       await tx.item.update({
         where: { id: line.itemId },
         data: {
           currentStockUnits: { increment: line.quantitySoldUnits },
+          totalInventoryValue: newTotalValue > 0 ? new Prisma.Decimal(roundPrice(newTotalValue)) : null,
         },
       });
     }
@@ -215,6 +343,7 @@ async function prepareLines(
   input: DayEndReportInput,
   beltMarkup: number,
   tx?: Prisma.TransactionClient,
+  stockBeingRestored?: Map<number, number>, // For updates: stock that was restored from previous report
 ): Promise<{
   lines: PreparedLine[];
   aggregated: Map<
@@ -252,6 +381,16 @@ async function prepareLines(
           : mrpPrice + beltMarkup;
     const quantity = line.quantitySoldUnits;
     const lineRevenue = quantity * sellingPricePerUnit;
+    
+    // Use weighted average cost for profit calculation (base cost, without tax/misc)
+    const costPriceAtSale = Number(item.weightedAvgCostPrice ?? item.purchaseCostPrice ?? 0);
+    const lineCost = quantity * costPriceAtSale;
+    const lineProfit = lineRevenue - lineCost;
+
+    // Use weighted average total cost (with tax/misc) for net profit calculation
+    const costPriceAtSaleWithCharges = Number(item.weightedAvgTotalCostPrice ?? item.weightedAvgCostPrice ?? item.purchaseCostPrice ?? 0);
+    const lineCostWithCharges = quantity * costPriceAtSaleWithCharges;
+    const lineNetProfit = lineRevenue - lineCostWithCharges;
 
     prepared.push({
       itemId: item.id,
@@ -262,13 +401,25 @@ async function prepareLines(
       mrpPrice,
       sellingPricePerUnit,
       lineRevenue,
+      costPriceAtSale,
+      costPriceAtSaleWithCharges,
+      lineCost,
+      lineCostWithCharges,
+      lineProfit,
+      lineNetProfit,
     });
+
+    // Calculate effective available stock:
+    // - Start with current stock from DB
+    // - Add any stock being restored (for updates)
+    const restoredForItem = stockBeingRestored?.get(item.id) ?? 0;
+    const effectiveAvailable = item.currentStockUnits + restoredForItem;
 
     const agg = aggregated.get(item.id) ?? {
       itemId: item.id,
       itemName: item.name,
       quantity: 0,
-      available: item.currentStockUnits,
+      available: effectiveAvailable,
     };
     agg.quantity += quantity;
     aggregated.set(item.id, agg);
@@ -312,10 +463,18 @@ function summarize(lines: PreparedLine[]) {
   let totalUnits = 0;
   let retailRevenue = 0;
   let beltRevenue = 0;
+  let totalCost = 0;                    // Gross cost (without tax/misc)
+  let totalCostWithCharges = 0;         // Net cost (with tax/misc)
+  let totalProfit = 0;                  // Gross profit
+  let totalNetProfit = 0;               // Net profit
 
   for (const line of lines) {
     totalRevenue += line.lineRevenue;
     totalUnits += line.quantitySoldUnits;
+    totalCost += line.lineCost;
+    totalCostWithCharges += line.lineCostWithCharges;
+    totalProfit += line.lineProfit;
+    totalNetProfit += line.lineNetProfit;
     if (line.channel === "RETAIL") {
       retailRevenue += line.lineRevenue;
     } else {
@@ -328,5 +487,11 @@ function summarize(lines: PreparedLine[]) {
     totalUnits,
     retailRevenue,
     beltRevenue,
+    totalCost,
+    totalCostWithCharges,
+    totalProfit,
+    totalNetProfit,
+    profitMargin: totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0,
+    netProfitMargin: totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0,
   };
 }

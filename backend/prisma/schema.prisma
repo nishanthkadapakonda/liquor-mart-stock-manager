@@ -32,40 +32,46 @@ model Setting {
 }
 
 model Item {
-  id                Int                  @id @default(autoincrement())
-  sku               String               @unique
-  name              String
-  brandNumber       String?
-  brand             String?
-  productType       String?
-  sizeCode          String?
-  packType          String?
-  unitsPerPack      Int?
-  packSizeLabel     String?
-  category          String?
-  volumeMl          Int?
-  mrpPrice          Decimal
-  purchaseCostPrice Decimal?
-  currentStockUnits Int                  @default(0)
-  reorderLevel      Int?
-  isActive          Boolean              @default(true)
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  purchases         PurchaseLineItem[]
-  salesLines        DayEndReportLine[]
-  adjustments       StockAdjustment[]
+  id                    Int                  @id @default(autoincrement())
+  sku                   String               @unique
+  name                  String
+  brandNumber           String?
+  brand                 String?
+  productType           String?
+  sizeCode              String?
+  packType              String?
+  unitsPerPack          Int?
+  packSizeLabel         String?
+  category              String?
+  volumeMl              Int?
+  mrpPrice              Decimal
+  purchaseCostPrice     Decimal?             // Latest purchase cost (for reference)
+  weightedAvgCostPrice  Decimal?             // Weighted average cost WITHOUT tax/misc (for gross profit)
+  weightedAvgTotalCostPrice Decimal?         // Weighted average cost WITH tax/misc (for net profit)
+  totalInventoryValue   Decimal?             // Total value of current inventory WITHOUT tax/misc
+  totalInventoryValueWithCharges Decimal?     // Total value of current inventory WITH tax/misc
+  currentStockUnits     Int                  @default(0)
+  reorderLevel          Int?
+  isActive              Boolean              @default(true)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  purchases             PurchaseLineItem[]
+  salesLines            DayEndReportLine[]
+  adjustments           StockAdjustment[]
 
   @@index([brandNumber])
   @@index([brandNumber, sizeCode])
 }
 
 model Purchase {
-  id           Int                @id @default(autoincrement())
-  purchaseDate DateTime
-  supplierName String?
-  notes        String?
-  createdAt    DateTime           @default(now())
-  lineItems    PurchaseLineItem[]
+  id                   Int                @id @default(autoincrement())
+  purchaseDate         DateTime
+  supplierName         String?
+  notes                String?
+  taxAmount            Decimal?           @default(0)
+  miscellaneousCharges Decimal?           @default(0)
+  createdAt            DateTime           @default(now())
+  lineItems            PurchaseLineItem[]
 }
 
 model PurchaseLineItem {
@@ -82,9 +88,13 @@ model PurchaseLineItem {
   brandNumber        String?
   productType        String?
   sizeCode           String?
-  unitCostPrice      Decimal
+  unitCostPrice      Decimal                 // Base unit cost (without tax/misc)
+  unitTotalCostPrice Decimal?                // Unit cost WITH allocated tax/misc
   caseCostPrice      Decimal?
-  lineTotalPrice     Decimal?
+  lineTotalPrice     Decimal?                // Line total (base cost only)
+  lineTotalCostWithCharges Decimal?          // Line total WITH allocated tax/misc
+  allocatedTaxAmount Decimal?                // Tax allocated to this line item
+  allocatedMiscCharges Decimal?              // Misc charges allocated to this line item
   mrpPriceAtPurchase Decimal?
   createdAt          DateTime  @default(now())
 }
@@ -97,6 +107,10 @@ model DayEndReport {
   totalUnitsSold   Int?
   retailRevenue    Decimal?
   beltRevenue      Decimal?
+  totalCost        Decimal?                 // Total cost WITHOUT tax/misc (gross cost)
+  totalCostWithCharges Decimal?              // Total cost WITH tax/misc (net cost)
+  totalProfit      Decimal?                 // Gross profit (revenue - base cost)
+  totalNetProfit   Decimal?                 // Net profit (revenue - total cost with charges)
   notes            String?
   createdAt        DateTime            @default(now())
   lines            DayEndReportLine[]
@@ -113,6 +127,12 @@ model DayEndReportLine {
   mrpPrice              Decimal
   sellingPricePerUnit   Decimal
   lineRevenue           Decimal
+  costPriceAtSale       Decimal?             // Base cost per unit (without tax/misc)
+  costPriceAtSaleWithCharges Decimal?        // Total cost per unit (with tax/misc)
+  lineCost              Decimal?             // Line cost WITHOUT tax/misc (gross cost)
+  lineCostWithCharges   Decimal?             // Line cost WITH tax/misc (net cost)
+  lineProfit            Decimal?             // Gross profit (revenue - base cost)
+  lineNetProfit         Decimal?             // Net profit (revenue - total cost with charges)
   createdAt             DateTime     @default(now())
 
   @@index([reportId])
