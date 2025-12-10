@@ -210,6 +210,29 @@ export function ReportsPage() {
     },
   });
 
+  // Fetch all purchases till date to calculate total purchases
+  const allPurchasesQuery = useQuery({
+    queryKey: ["purchases", "all"],
+    queryFn: async () => {
+      const endDate = dayjs().format("YYYY-MM-DD");
+      const response = await api.get<{ purchases: Array<{ totalCost?: number; taxAmount?: string | number | null; miscellaneousCharges?: string | number | null }> }>("/purchases", {
+        params: { endDate },
+      });
+      return response.data.purchases;
+    },
+  });
+
+  // Calculate total purchases till date (including tax and misc)
+  const totalPurchases = useMemo(() => {
+    if (!allPurchasesQuery.data) return 0;
+    return allPurchasesQuery.data.reduce((sum, purchase) => {
+      const cost = purchase.totalCost ?? 0;
+      const tax = Number(purchase.taxAmount ?? 0);
+      const misc = Number(purchase.miscellaneousCharges ?? 0);
+      return sum + cost + tax + misc;
+    }, 0);
+  }, [allPurchasesQuery.data]);
+
   const dailyTopItemsQuery = useQuery({
     queryKey: ["analytics", "daily-top-items", dailyLeadersRange, dailyLeadersSort],
     queryFn: async () => {
@@ -546,7 +569,7 @@ export function ReportsPage() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase text-slate-400">Total revenue</p>
           <p className="text-2xl font-semibold text-slate-900">{formatCurrency(summary?.totalRevenue ?? 0)}</p>
@@ -575,6 +598,11 @@ export function ReportsPage() {
               {includeTaxMisc ? "Net" : "Gross"}
             </button>
           </div>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase text-slate-400">Total purchases</p>
+          <p className="text-2xl font-semibold text-slate-900">{formatCurrency(totalPurchases)}</p>
+          <p className="mt-1 text-[10px] text-slate-500">Till date</p>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase text-slate-400">Total units</p>

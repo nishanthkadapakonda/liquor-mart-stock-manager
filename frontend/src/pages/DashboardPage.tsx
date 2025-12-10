@@ -75,6 +75,29 @@ export function DashboardPage() {
     },
   });
 
+  // Fetch all purchases till date to calculate total purchases
+  const allPurchasesQuery = useQuery({
+    queryKey: ["purchases", "all"],
+    queryFn: async () => {
+      const endDate = dayjs().format("YYYY-MM-DD");
+      const response = await api.get<{ purchases: Array<{ totalCost?: number; taxAmount?: string | number | null; miscellaneousCharges?: string | number | null }> }>("/purchases", {
+        params: { endDate },
+      });
+      return response.data.purchases;
+    },
+  });
+
+  // Calculate total purchases till date (including tax and misc)
+  const totalPurchases = useMemo(() => {
+    if (!allPurchasesQuery.data) return 0;
+    return allPurchasesQuery.data.reduce((sum, purchase) => {
+      const cost = purchase.totalCost ?? 0;
+      const tax = Number(purchase.taxAmount ?? 0);
+      const misc = Number(purchase.miscellaneousCharges ?? 0);
+      return sum + cost + tax + misc;
+    }, 0);
+  }, [allPurchasesQuery.data]);
+
   // Calculate total profit from all reports in the range
   const grossProfit = useMemo(() => {
     if (!data?.reports) return 0;
@@ -133,7 +156,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard
           label="Total revenue"
           value={formatCurrency(data.totalSales)}
@@ -165,6 +188,11 @@ export function DashboardPage() {
             </button>
           </div>
         </div>
+        <StatCard
+          label="Total purchases"
+          value={formatCurrency(totalPurchases)}
+          badge="Till date"
+        />
         <StatCard label="Units sold" value={formatNumber(data.totalUnits)} />
         <StatCard
           label="Top selling item"

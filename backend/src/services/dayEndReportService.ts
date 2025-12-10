@@ -2,9 +2,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { SalesChannel } from "../types/domain";
 
-// Helper function to round prices to 2 decimal places
+// Helper function to round prices to 4 decimal places without floating-point errors
 function roundPrice(value: number): number {
-  return Math.round(value * 10000) / 10000;
+  // Use toFixed to avoid floating-point precision issues, then parse back
+  return Number(Number(value).toFixed(4));
 }
 
 export interface DayEndLineInput {
@@ -124,7 +125,7 @@ export async function createDayEndReport(input: DayEndReportInput) {
     
     // Net profit = gross profit - proportional share of purchase tax/misc
     const totalNetProfit = summary.totalProfit - allocatedTaxMisc;
-    const roundedNetProfit = Math.round(totalNetProfit * 10000) / 10000;
+    const roundedNetProfit = roundPrice(totalNetProfit);
     
     const report = await tx.dayEndReport.create({
       data: {
@@ -280,7 +281,7 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
     
     // Net profit = gross profit - proportional share of purchase tax/misc
     const totalNetProfit = summary.totalProfit - allocatedTaxMisc;
-    const roundedNetProfit = Math.round(totalNetProfit * 10000) / 10000;
+    const roundedNetProfit = roundPrice(totalNetProfit);
     
     const report = await tx.dayEndReport.update({
       where: { id: reportId },

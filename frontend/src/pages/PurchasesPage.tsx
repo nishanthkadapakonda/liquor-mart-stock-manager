@@ -8,6 +8,11 @@ import { formatCurrency, formatNumber } from "../utils/formatters";
 import { parsePurchaseUpload, type ParsedLine } from "../utils/fileParsers";
 import { useAuth } from "../providers/AuthProvider";
 
+// Helper function to round to 4 decimal places without floating-point errors
+function roundTo4Decimals(value: number): number {
+  return Number(Number(value).toFixed(4));
+}
+
 interface ManualLine {
   id: string;
   itemId?: number;
@@ -234,43 +239,43 @@ export function PurchasesPage() {
         // When lineTotalPrice changes: calculate unitCostPrice and caseCostPrice
         if (key === "lineTotalPrice" && numValue > 0) {
           if (quantityUnits > 0) {
-            updated.unitCostPrice = (numValue / quantityUnits).toFixed(2);
+            updated.unitCostPrice = roundTo4Decimals(numValue / quantityUnits).toFixed(4);
           }
           if (casesQuantity > 0) {
-            updated.caseCostPrice = (numValue / casesQuantity).toFixed(2);
+            updated.caseCostPrice = roundTo4Decimals(numValue / casesQuantity).toFixed(4);
           }
         }
         
         // When unitCostPrice changes: calculate caseCostPrice and lineTotalPrice
         else if (key === "unitCostPrice" && numValue > 0) {
           if (unitsPerPack > 0) {
-            updated.caseCostPrice = (numValue * unitsPerPack).toFixed(2);
+            updated.caseCostPrice = roundTo4Decimals(numValue * unitsPerPack).toFixed(4);
           }
           if (quantityUnits > 0) {
-            updated.lineTotalPrice = (numValue * quantityUnits).toFixed(2);
+            updated.lineTotalPrice = roundTo4Decimals(numValue * quantityUnits).toFixed(4);
           }
         }
         
         // When caseCostPrice changes: calculate unitCostPrice and lineTotalPrice
         else if (key === "caseCostPrice" && numValue > 0) {
           if (unitsPerPack > 0) {
-            updated.unitCostPrice = (numValue / unitsPerPack).toFixed(2);
+            updated.unitCostPrice = roundTo4Decimals(numValue / unitsPerPack).toFixed(4);
           }
           if (casesQuantity > 0) {
-            updated.lineTotalPrice = (numValue * casesQuantity).toFixed(2);
+            updated.lineTotalPrice = roundTo4Decimals(numValue * casesQuantity).toFixed(4);
           }
         }
         
         // When quantityUnits changes: recalculate lineTotalPrice
         else if (key === "quantityUnits") {
           if (numValue > 0 && unitCostPrice > 0) {
-            updated.lineTotalPrice = (unitCostPrice * numValue).toFixed(2);
+            updated.lineTotalPrice = roundTo4Decimals(unitCostPrice * numValue).toFixed(4);
           } else if (numValue > 0 && caseCostPrice > 0 && unitsPerPack > 0) {
             // Calculate from case cost
-            const calculatedUnitCost = caseCostPrice / unitsPerPack;
-            updated.lineTotalPrice = (calculatedUnitCost * numValue).toFixed(2);
+            const calculatedUnitCost = roundTo4Decimals(caseCostPrice / unitsPerPack);
+            updated.lineTotalPrice = roundTo4Decimals(calculatedUnitCost * numValue).toFixed(4);
             if (!updated.unitCostPrice || updated.unitCostPrice === "") {
-              updated.unitCostPrice = calculatedUnitCost.toFixed(2);
+              updated.unitCostPrice = calculatedUnitCost.toFixed(4);
             }
           } else if (numValue === 0) {
             updated.lineTotalPrice = "";
@@ -280,13 +285,13 @@ export function PurchasesPage() {
         // When casesQuantity changes: recalculate lineTotalPrice and quantityUnits
         else if (key === "casesQuantity") {
           if (numValue > 0 && caseCostPrice > 0) {
-            updated.lineTotalPrice = (caseCostPrice * numValue).toFixed(2);
+            updated.lineTotalPrice = roundTo4Decimals(caseCostPrice * numValue).toFixed(4);
           } else if (numValue > 0 && unitCostPrice > 0 && unitsPerPack > 0) {
             // Calculate from unit cost
-            const calculatedCaseCost = unitCostPrice * unitsPerPack;
-            updated.lineTotalPrice = (calculatedCaseCost * numValue).toFixed(2);
+            const calculatedCaseCost = roundTo4Decimals(unitCostPrice * unitsPerPack);
+            updated.lineTotalPrice = roundTo4Decimals(calculatedCaseCost * numValue).toFixed(4);
             if (!updated.caseCostPrice || updated.caseCostPrice === "") {
-              updated.caseCostPrice = calculatedCaseCost.toFixed(2);
+              updated.caseCostPrice = calculatedCaseCost.toFixed(4);
             }
           }
           // Auto-calculate quantityUnits if unitsPerPack is available
@@ -301,9 +306,9 @@ export function PurchasesPage() {
         // When unitsPerPack changes: recalculate caseCostPrice and quantityUnits
         else if (key === "unitsPerPack") {
           if (numValue > 0 && unitCostPrice > 0) {
-            updated.caseCostPrice = (unitCostPrice * numValue).toFixed(2);
+            updated.caseCostPrice = roundTo4Decimals(unitCostPrice * numValue).toFixed(4);
           } else if (numValue > 0 && caseCostPrice > 0) {
-            updated.unitCostPrice = (caseCostPrice / numValue).toFixed(2);
+            updated.unitCostPrice = roundTo4Decimals(caseCostPrice / numValue).toFixed(4);
           }
           // Auto-calculate quantityUnits if casesQuantity is available
           if (numValue > 0 && casesQuantity > 0) {
@@ -328,9 +333,9 @@ export function PurchasesPage() {
           : unitsPerPack !== undefined && casesQuantity !== undefined
             ? unitsPerPack * casesQuantity
             : 0;
-        const unitCostPrice = Number(line.unitCostPrice || line.mrpPrice || 0);
-        const caseCostPrice = line.caseCostPrice !== "" ? Number(line.caseCostPrice) : undefined;
-        const lineTotalPrice = line.lineTotalPrice !== "" ? Number(line.lineTotalPrice) : undefined;
+        const unitCostPrice = roundTo4Decimals(Number(line.unitCostPrice || line.mrpPrice || 0));
+        const caseCostPrice = line.caseCostPrice !== "" ? roundTo4Decimals(Number(line.caseCostPrice)) : undefined;
+        const lineTotalPrice = line.lineTotalPrice !== "" ? roundTo4Decimals(Number(line.lineTotalPrice)) : undefined;
         return {
           itemId: line.itemId,
           sku: line.sku || undefined,
@@ -386,8 +391,8 @@ export function PurchasesPage() {
           purchaseDate,
           supplierName: supplierName || undefined,
           notes: notes || undefined,
-          taxAmount: taxAmount ? Number(taxAmount) : undefined,
-          miscellaneousCharges: miscellaneousCharges ? Number(miscellaneousCharges) : undefined,
+          taxAmount: taxAmount ? roundTo4Decimals(Number(taxAmount)) : undefined,
+          miscellaneousCharges: miscellaneousCharges ? roundTo4Decimals(Number(miscellaneousCharges)) : undefined,
           lineItems: payloadLines,
           allowItemCreation: true,
         });
@@ -397,8 +402,8 @@ export function PurchasesPage() {
           purchaseDate,
           supplierName: supplierName || undefined,
           notes: notes || undefined,
-          taxAmount: taxAmount ? Number(taxAmount) : undefined,
-          miscellaneousCharges: miscellaneousCharges ? Number(miscellaneousCharges) : undefined,
+          taxAmount: taxAmount ? roundTo4Decimals(Number(taxAmount)) : undefined,
+          miscellaneousCharges: miscellaneousCharges ? roundTo4Decimals(Number(miscellaneousCharges)) : undefined,
           lineItems: payloadLines,
           allowItemCreation: true,
         });
@@ -445,8 +450,8 @@ export function PurchasesPage() {
       await api.post("/purchases/import", {
         purchaseDate: importDate,
         supplierName: importSupplier,
-        taxAmount: importTaxAmount ? Number(importTaxAmount) : undefined,
-        miscellaneousCharges: importMiscellaneousCharges ? Number(importMiscellaneousCharges) : undefined,
+        taxAmount: importTaxAmount ? roundTo4Decimals(Number(importTaxAmount)) : undefined,
+        miscellaneousCharges: importMiscellaneousCharges ? roundTo4Decimals(Number(importMiscellaneousCharges)) : undefined,
         lineItems: importPreview.map((line) => line.payload),
         allowItemCreation: true,
       });
@@ -468,10 +473,29 @@ export function PurchasesPage() {
     try {
       const response = await api.get<{ purchase: Purchase }>(`/purchases/${purchaseId}`);
       const purchase = response.data.purchase;
+      
       setEditingPurchase(purchase);
       setPurchaseDate(dayjs(purchase.purchaseDate).format("YYYY-MM-DD"));
       setSupplierName(purchase.supplierName ?? "");
       setNotes(purchase.notes ?? "");
+      
+      // Handle taxAmount - convert to string for input field
+      const taxValue = purchase.taxAmount;
+      if (taxValue === null || taxValue === undefined) {
+        setTaxAmount("");
+      } else {
+        const taxNum = typeof taxValue === "string" ? parseFloat(taxValue) : Number(taxValue);
+        setTaxAmount(!isNaN(taxNum) ? taxNum.toString() : "");
+      }
+      
+      // Handle miscellaneousCharges - convert to string for input field
+      const miscValue = purchase.miscellaneousCharges;
+      if (miscValue === null || miscValue === undefined) {
+        setMiscellaneousCharges("");
+      } else {
+        const miscNum = typeof miscValue === "string" ? parseFloat(miscValue) : Number(miscValue);
+        setMiscellaneousCharges(!isNaN(miscNum) ? miscNum.toString() : "");
+      }
       setManualLines(
         purchase.lineItems.map((line) => ({
           id: crypto.randomUUID(),

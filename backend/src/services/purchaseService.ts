@@ -1,6 +1,12 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 
+// Helper function to round to 4 decimal places without floating-point errors
+function roundTo4Decimals(value: number): number {
+  // Use toFixed to avoid floating-point precision issues, then parse back
+  return Number(Number(value).toFixed(4));
+}
+
 export interface PurchaseLineInput {
   itemId?: number;
   sku?: string;
@@ -47,8 +53,8 @@ export async function createPurchase(input: PurchaseInput) {
         purchaseDate: purchaseDateValue,
         supplierName: input.supplierName ?? null,
         notes: input.notes ?? null,
-        taxAmount: input.taxAmount !== undefined ? new Prisma.Decimal(Math.round(input.taxAmount * 10000) / 10000) : null,
-        miscellaneousCharges: input.miscellaneousCharges !== undefined ? new Prisma.Decimal(Math.round(input.miscellaneousCharges * 10000) / 10000) : null,
+        taxAmount: input.taxAmount !== undefined ? new Prisma.Decimal(roundTo4Decimals(input.taxAmount)) : null,
+        miscellaneousCharges: input.miscellaneousCharges !== undefined ? new Prisma.Decimal(roundTo4Decimals(input.miscellaneousCharges)) : null,
       },
     });
 
@@ -74,10 +80,10 @@ export async function createPurchase(input: PurchaseInput) {
           brandNumber: line.brandNumber ?? null,
           productType: line.productType ?? null,
           sizeCode: line.sizeCode ?? null,
-          unitCostPrice: new Prisma.Decimal(Math.round(line.unitCostPrice * 10000) / 10000),
-          caseCostPrice: caseCostPrice !== undefined ? new Prisma.Decimal(Math.round(caseCostPrice * 10000) / 10000) : null,
-          lineTotalPrice: lineTotalPrice !== undefined ? new Prisma.Decimal(Math.round(lineTotalPrice * 10000) / 10000) : null,
-          mrpPriceAtPurchase: new Prisma.Decimal(Math.round(line.mrpPrice * 10000) / 10000),
+          unitCostPrice: new Prisma.Decimal(roundTo4Decimals(line.unitCostPrice)),
+          caseCostPrice: caseCostPrice !== undefined ? new Prisma.Decimal(roundTo4Decimals(caseCostPrice)) : null,
+          lineTotalPrice: lineTotalPrice !== undefined ? new Prisma.Decimal(roundTo4Decimals(lineTotalPrice)) : null,
+          mrpPriceAtPurchase: new Prisma.Decimal(roundTo4Decimals(line.mrpPrice)),
         },
       });
 
@@ -89,9 +95,9 @@ export async function createPurchase(input: PurchaseInput) {
       const newPurchaseValue = line.unitCostPrice * line.quantityUnits;
       const newStock = oldStock + line.quantityUnits;
       const newWeightedAvg = newStock > 0 ? (oldTotalValue + newPurchaseValue) / newStock : line.unitCostPrice;
-      const roundedWeightedAvg = Math.round(newWeightedAvg * 10000) / 10000;
+      const roundedWeightedAvg = roundTo4Decimals(newWeightedAvg);
       const newTotalValue = roundedWeightedAvg * newStock;
-      const roundedTotalValue = Math.round(newTotalValue * 10000) / 10000;
+      const roundedTotalValue = roundTo4Decimals(newTotalValue);
 
       const itemUpdateData: Prisma.ItemUpdateInput = {
         currentStockUnits: { increment: line.quantityUnits },
@@ -102,14 +108,14 @@ export async function createPurchase(input: PurchaseInput) {
       applyItemMetadata(itemUpdateData, line);
       if (shouldUpdatePricing) {
         // Always update cost price from latest purchase (rounded to 2 decimals)
-        const roundedCostPrice = Math.round(line.unitCostPrice * 10000) / 10000;
+        const roundedCostPrice = roundTo4Decimals(line.unitCostPrice);
         itemUpdateData.purchaseCostPrice = new Prisma.Decimal(roundedCostPrice);
         
         // Only update MRP if explicitly provided (different from cost price)
         // If mrpPrice equals unitCostPrice, it means no MRP was in the import
         const explicitMrpProvided = Math.abs(line.mrpPrice - line.unitCostPrice) > 0.01;
         if (explicitMrpProvided) {
-          const roundedMrp = Math.round(line.mrpPrice * 10000) / 10000;
+          const roundedMrp = roundTo4Decimals(line.mrpPrice);
           itemUpdateData.mrpPrice = new Prisma.Decimal(roundedMrp);
         }
       }
@@ -167,8 +173,8 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
         purchaseDate: purchaseDateValue,
         supplierName: input.supplierName ?? null,
         notes: input.notes ?? null,
-        taxAmount: input.taxAmount !== undefined ? new Prisma.Decimal(Math.round(input.taxAmount * 10000) / 10000) : null,
-        miscellaneousCharges: input.miscellaneousCharges !== undefined ? new Prisma.Decimal(Math.round(input.miscellaneousCharges * 10000) / 10000) : null,
+        taxAmount: input.taxAmount !== undefined ? new Prisma.Decimal(roundTo4Decimals(input.taxAmount)) : null,
+        miscellaneousCharges: input.miscellaneousCharges !== undefined ? new Prisma.Decimal(roundTo4Decimals(input.miscellaneousCharges)) : null,
       },
     });
 
@@ -195,10 +201,10 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
           brandNumber: line.brandNumber ?? null,
           productType: line.productType ?? null,
           sizeCode: line.sizeCode ?? null,
-          unitCostPrice: new Prisma.Decimal(Math.round(line.unitCostPrice * 10000) / 10000),
-          caseCostPrice: caseCostPrice !== undefined ? new Prisma.Decimal(Math.round(caseCostPrice * 10000) / 10000) : null,
-          lineTotalPrice: lineTotalPrice !== undefined ? new Prisma.Decimal(Math.round(lineTotalPrice * 10000) / 10000) : null,
-          mrpPriceAtPurchase: new Prisma.Decimal(Math.round(line.mrpPrice * 10000) / 10000),
+          unitCostPrice: new Prisma.Decimal(roundTo4Decimals(line.unitCostPrice)),
+          caseCostPrice: caseCostPrice !== undefined ? new Prisma.Decimal(roundTo4Decimals(caseCostPrice)) : null,
+          lineTotalPrice: lineTotalPrice !== undefined ? new Prisma.Decimal(roundTo4Decimals(lineTotalPrice)) : null,
+          mrpPriceAtPurchase: new Prisma.Decimal(roundTo4Decimals(line.mrpPrice)),
         },
       });
 
@@ -210,9 +216,9 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
       const newPurchaseValue = line.unitCostPrice * line.quantityUnits;
       const newStock = oldStock + line.quantityUnits;
       const newWeightedAvg = newStock > 0 ? (oldTotalValue + newPurchaseValue) / newStock : line.unitCostPrice;
-      const roundedWeightedAvg = Math.round(newWeightedAvg * 10000) / 10000;
+      const roundedWeightedAvg = roundTo4Decimals(newWeightedAvg);
       const newTotalValue = roundedWeightedAvg * newStock;
-      const roundedTotalValue = Math.round(newTotalValue * 10000) / 10000;
+      const roundedTotalValue = roundTo4Decimals(newTotalValue);
 
       const itemUpdateData: Prisma.ItemUpdateInput = {
         currentStockUnits: { increment: line.quantityUnits },
@@ -223,13 +229,13 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
       applyItemMetadata(itemUpdateData, line);
       if (shouldUpdatePricing) {
         // Always update cost price from latest purchase (rounded to 2 decimals)
-        const roundedCostPrice = Math.round(line.unitCostPrice * 10000) / 10000;
+        const roundedCostPrice = roundTo4Decimals(line.unitCostPrice);
         itemUpdateData.purchaseCostPrice = new Prisma.Decimal(roundedCostPrice);
         
         // Only update MRP if explicitly provided (different from cost price)
         const explicitMrpProvided = Math.abs(line.mrpPrice - line.unitCostPrice) > 0.01;
         if (explicitMrpProvided) {
-          const roundedMrp = Math.round(line.mrpPrice * 10000) / 10000;
+          const roundedMrp = roundTo4Decimals(line.mrpPrice);
           itemUpdateData.mrpPrice = new Prisma.Decimal(roundedMrp);
         }
       }

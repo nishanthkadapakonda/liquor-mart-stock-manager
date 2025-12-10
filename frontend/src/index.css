@@ -8,14 +8,20 @@
   color: #0f172a;
 }
 
+html {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   background-color: #f8fafc;
+  overflow-x: hidden;
 }
 
 #root {
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 @layer base {

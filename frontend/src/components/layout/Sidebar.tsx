@@ -20,12 +20,21 @@ const navItems = [
   { label: "User Access", path: "/users", icon: Users, adminOnly: true },
 ] as const;
 
-export function Sidebar() {
+type SidebarProps = {
+  variant?: "desktop" | "mobile";
+};
+
+export function Sidebar({ variant = "desktop" }: SidebarProps) {
   const { user } = useAuth();
   const canSeeAdminLinks = user?.role === "ADMIN";
 
+  const isMobile = variant === "mobile";
+  const containerClass = isMobile
+    ? "flex h-full w-64 flex-col border-r border-slate-200 bg-white shadow-xl"
+    : "hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex";
+
   return (
-    <aside className="hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
+    <aside className={containerClass}>
       <div className="flex items-center gap-3 px-6 py-6">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-500 text-white font-semibold">
           LM
@@ -36,30 +45,30 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3">
         {navItems
           .filter((item) => (item.adminOnly ? canSeeAdminLinks : true))
           .map((item) => {
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === "/"}
-              className={({ isActive }) =>
-                [
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                  isActive
-                    ? "bg-brand-50 text-brand-700"
-                    : "text-slate-600 hover:bg-slate-100",
-                ].join(" ")
-              }
-            >
-              <Icon size={18} />
-              {item.label}
-            </NavLink>
-          );
-        })}
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === "/"}
+                className={({ isActive }) =>
+                  [
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                    isActive
+                      ? "bg-brand-50 text-brand-700"
+                      : "text-slate-600 hover:bg-slate-100",
+                  ].join(" ")
+                }
+              >
+                <Icon size={18} />
+                {item.label}
+              </NavLink>
+            );
+          })}
       </nav>
 
       <div className="px-6 py-6 text-xs text-slate-400">

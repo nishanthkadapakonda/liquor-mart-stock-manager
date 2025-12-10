@@ -7,6 +7,12 @@ import { requireAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
+// Helper function to round to 4 decimal places without floating-point errors
+function roundTo4Decimals(value: number): number {
+  // Use toFixed to avoid floating-point precision issues, then parse back
+  return Number(Number(value).toFixed(4));
+}
+
 const baseItemSchema = z.object({
   sku: z.string().min(2).optional(), // Optional - auto-generated from brandNumber-sizeCode-packType
   name: z.string().min(2),
@@ -121,9 +127,9 @@ router.post(
           currentStockUnits: currentStockUnits ?? 0,
           reorderLevel: reorderLevel ?? null,
           isActive: isActive ?? true,
-          mrpPrice: new Prisma.Decimal(Math.round(mrpPrice * 10000) / 10000),
+          mrpPrice: new Prisma.Decimal(roundTo4Decimals(mrpPrice)),
           purchaseCostPrice:
-            purchaseCostPrice !== undefined ? new Prisma.Decimal(Math.round(purchaseCostPrice * 10000) / 10000) : null,
+            purchaseCostPrice !== undefined ? new Prisma.Decimal(roundTo4Decimals(purchaseCostPrice)) : null,
         },
       });
       res.status(201).json({ item });
@@ -202,10 +208,10 @@ router.put(
       data.reorderLevel = reorderLevel ?? null;
     }
     if (mrpPrice !== undefined) {
-      data.mrpPrice = new Prisma.Decimal(Math.round(mrpPrice * 10000) / 10000);
+      data.mrpPrice = new Prisma.Decimal(roundTo4Decimals(mrpPrice));
     }
     if (purchaseCostPrice !== undefined) {
-      data.purchaseCostPrice = new Prisma.Decimal(Math.round(purchaseCostPrice * 10000) / 10000);
+      data.purchaseCostPrice = new Prisma.Decimal(roundTo4Decimals(purchaseCostPrice));
     }
     const item = await prisma.item.update({
       where: { id: Number(id) },
@@ -289,8 +295,8 @@ router.get(
         lineTotalPrice: line.lineTotalPrice ? Number(line.lineTotalPrice) : null,
         // Running calculations at this point in time
         runningTotalUnits,
-        runningTotalValue: Math.round(runningTotalValue * 10000) / 10000,
-        weightedAvgAtPurchase: Math.round(weightedAvgAtPurchase * 10000) / 10000,
+        runningTotalValue: roundTo4Decimals(runningTotalValue),
+        weightedAvgAtPurchase: roundTo4Decimals(weightedAvgAtPurchase),
       };
     });
 
@@ -306,8 +312,8 @@ router.get(
       summary: {
         totalPurchases: purchases.length,
         totalUnitsPurchased: runningTotalUnits,
-        totalValuePurchased: Math.round(runningTotalValue * 10000) / 10000,
-        currentWeightedAvg: runningTotalUnits > 0 ? Math.round((runningTotalValue / runningTotalUnits) * 10000) / 10000 : 0,
+        totalValuePurchased: roundTo4Decimals(runningTotalValue),
+        currentWeightedAvg: runningTotalUnits > 0 ? roundTo4Decimals(runningTotalValue / runningTotalUnits) : 0,
       },
     });
   }),

@@ -9,8 +9,8 @@ export function LoginPage() {
   const location = useLocation();
   const redirectPath = (location.state as { from?: Location })?.from?.pathname ?? "/";
 
-  const [email, setEmail] = useState("admin@liquormart.test");
-  const [password, setPassword] = useState("ChangeMe123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,13 +56,15 @@ export function LoginPage() {
             <p className="text-sm text-slate-500">Enter the seeded admin credentials.</p>
           </div>
 
-          <form className="space-y-5" onSubmit={handleSubmit}>
+          <form className="space-y-5" onSubmit={handleSubmit} autoComplete="on">
             <div>
               <label className="text-sm font-medium text-slate-700">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                placeholder=""
                 className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
                 required
               />
@@ -73,6 +75,8 @@ export function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                placeholder=""
                 className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
                 required
               />

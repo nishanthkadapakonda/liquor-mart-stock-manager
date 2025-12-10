@@ -113,7 +113,20 @@ router.get(
           : Number(l.unitCostPrice) * l.quantityUnits;
         return sum + lineCost;
       }, 0);
-      return { ...purchase, totalQuantity, totalCost };
+      // Convert Decimal fields to numbers before spreading
+      const taxAmount = purchase.taxAmount !== null && purchase.taxAmount !== undefined 
+        ? Number(purchase.taxAmount.toString()) 
+        : null;
+      const miscellaneousCharges = purchase.miscellaneousCharges !== null && purchase.miscellaneousCharges !== undefined 
+        ? Number(purchase.miscellaneousCharges.toString()) 
+        : null;
+      return {
+        ...purchase,
+        totalQuantity,
+        totalCost,
+        taxAmount,
+        miscellaneousCharges,
+      };
     });
 
     res.json({ purchases: formatted });
@@ -131,7 +144,19 @@ router.get(
     if (!purchase) {
       return res.status(404).json({ message: "Purchase not found" });
     }
-    res.json({ purchase });
+    // Convert Decimal fields to numbers for proper JSON serialization
+    // Handle null/undefined separately from 0 values
+    // Prisma Decimal fields need explicit conversion
+    const formattedPurchase = {
+      ...purchase,
+      taxAmount: purchase.taxAmount !== null && purchase.taxAmount !== undefined 
+        ? Number(purchase.taxAmount.toString()) 
+        : null,
+      miscellaneousCharges: purchase.miscellaneousCharges !== null && purchase.miscellaneousCharges !== undefined 
+        ? Number(purchase.miscellaneousCharges.toString()) 
+        : null,
+    };
+    res.json({ purchase: formattedPurchase });
   }),
 );
 
