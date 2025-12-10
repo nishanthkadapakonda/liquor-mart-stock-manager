@@ -24,6 +24,7 @@ const topSellersRanges = [
 export function DashboardPage() {
   const [range, setRange] = useState(7);
   const [topSellersRange, setTopSellersRange] = useState(30);
+  const [includeTaxMisc, setIncludeTaxMisc] = useState(false); // Toggle for cost/profit with tax/misc
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", range],
@@ -60,6 +61,40 @@ export function DashboardPage() {
       revenue: item.revenue,
     }));
   }, [topSellersQuery.data]);
+
+  // Fetch purchases for the date range to calculate total tax/misc
+  const purchasesQuery = useQuery({
+    queryKey: ["purchases", range],
+    queryFn: async () => {
+      const endDate = dayjs().format("YYYY-MM-DD");
+      const startDate = dayjs().subtract(range - 1, "day").format("YYYY-MM-DD");
+      const response = await api.get<{ purchases: Array<{ taxAmount?: string | number | null; miscellaneousCharges?: string | number | null }> }>("/purchases", {
+        params: { startDate, endDate },
+      });
+      return response.data.purchases;
+    },
+  });
+
+  // Calculate total profit from all reports in the range
+  const grossProfit = useMemo(() => {
+    if (!data?.reports) return 0;
+    return data.reports.reduce((sum, report) => {
+      return sum + Number(report.totalProfit ?? 0);
+    }, 0);
+  }, [data?.reports]);
+
+  // Calculate total tax/misc from all purchases in the range
+  const totalTaxMisc = useMemo(() => {
+    if (!purchasesQuery.data) return 0;
+    return purchasesQuery.data.reduce((sum, purchase) => {
+      const tax = Number(purchase.taxAmount ?? 0);
+      const misc = Number(purchase.miscellaneousCharges ?? 0);
+      return sum + tax + misc;
+    }, 0);
+  }, [purchasesQuery.data]);
+
+  // Calculate final profit based on toggle
+  const totalProfit = includeTaxMisc ? grossProfit - totalTaxMisc : grossProfit;
 
   if (isLoading || !data) {
     return (
@@ -105,6 +140,31 @@ export function DashboardPage() {
           badge="Includes retail & belt"
           icon={<TrendingUp className="text-brand-500" size={20} />}
         />
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-xs uppercase text-slate-400">Total profit</p>
+              <p className="text-2xl font-semibold text-emerald-700">
+                {formatCurrency(totalProfit)}
+              </p>
+              <p className="mt-1 text-[10px] text-slate-500">
+                {includeTaxMisc ? "Net (after tax/misc)" : "Gross (before tax/misc)"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIncludeTaxMisc(!includeTaxMisc)}
+              className={`rounded-full px-2 py-1 text-[10px] font-semibold transition ${
+                includeTaxMisc
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+              title="Toggle to show profit with/without purchase tax & misc charges"
+            >
+              {includeTaxMisc ? "Net" : "Gross"}
+            </button>
+          </div>
+        </div>
         <StatCard label="Units sold" value={formatNumber(data.totalUnits)} />
         <StatCard
           label="Top selling item"
@@ -133,6 +193,34 @@ export function DashboardPage() {
               <div className="text-right text-sm text-slate-500">
                 <p>Belt markup: {formatCurrency(data.latestReport.beltMarkupRupees ?? 0)}</p>
                 <p>Total units: {formatNumber(data.latestReport.totalUnitsSold ?? 0)}</p>
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIncludeTaxMisc(!includeTaxMisc)}
+                    className={`rounded-full px-2 py-1 text-[10px] font-semibold transition ${
+                      includeTaxMisc
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                    title="Toggle to show profit with/without purchase tax & misc charges"
+                  >
+                    {includeTaxMisc ? "Net Profit" : "Gross Profit"}
+                  </button>
+                </div>
+                {data.latestReport.totalProfit !== null && data.latestReport.totalProfit !== undefined && (
+                  <div className="mt-1 text-xs">
+                    <p className="font-semibold text-slate-900">
+                      Profit: {formatCurrency(
+                        includeTaxMisc && data.latestReport.totalNetProfit
+                          ? Number(data.latestReport.totalNetProfit)
+                          : Number(data.latestReport.totalProfit ?? 0)
+                      )}
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      {includeTaxMisc ? "After tax/misc" : "Before tax/misc"}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -271,29 +359,52 @@ export function DashboardPage() {
         </div>
 
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <p className="text-base font-semibold text-slate-900">Recent reports</p>
+          <div className="flex items-center justify-between">
+            <p className="text-base font-semibold text-slate-900">Recent reports</p>
+            <button
+              type="button"
+              onClick={() => setIncludeTaxMisc(!includeTaxMisc)}
+              className={`rounded-full px-2 py-1 text-[10px] font-semibold transition ${
+                includeTaxMisc
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+              title="Toggle to show profit with/without purchase tax & misc charges"
+            >
+              {includeTaxMisc ? "Net Profit" : "Gross Profit"}
+            </button>
+          </div>
           <table className="mt-4 w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-400">
               <tr>
                 <th className="py-2">Date</th>
                 <th className="py-2">Units</th>
                 <th className="py-2">Revenue</th>
+                <th className="py-2 text-right">Profit</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {data.reports.slice(0, 6).map((report) => (
-                <tr key={report.id}>
-                  <td className="py-2 text-slate-900">
-                    {dayjs(report.reportDate).format("DD MMM")}
-                  </td>
-                  <td className="py-2 text-slate-600">
-                    {formatNumber(report.totalUnitsSold ?? 0)}
-                  </td>
-                  <td className="py-2 text-slate-900">
-                    {formatCurrency(report.totalSalesAmount ?? 0)}
-                  </td>
-                </tr>
-              ))}
+              {data.reports.slice(0, 6).map((report) => {
+                const profit = includeTaxMisc && report.totalNetProfit
+                  ? Number(report.totalNetProfit)
+                  : Number(report.totalProfit ?? 0);
+                return (
+                  <tr key={report.id}>
+                    <td className="py-2 text-slate-900">
+                      {dayjs(report.reportDate).format("DD MMM")}
+                    </td>
+                    <td className="py-2 text-slate-600">
+                      {formatNumber(report.totalUnitsSold ?? 0)}
+                    </td>
+                    <td className="py-2 text-slate-900">
+                      {formatCurrency(report.totalSalesAmount ?? 0)}
+                    </td>
+                    <td className="py-2 text-right font-semibold text-emerald-600">
+                      {formatCurrency(profit)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

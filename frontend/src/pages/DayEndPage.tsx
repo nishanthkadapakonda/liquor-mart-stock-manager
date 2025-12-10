@@ -64,6 +64,7 @@ export function DayEndPage() {
   const [deleteInFlight, setDeleteInFlight] = useState<number | null>(null);
   const [importPreview, setImportPreview] = useState<ParsedLine<DayEndLineInput>[]>([]);
   const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [includeTaxMisc, setIncludeTaxMisc] = useState(false); // Toggle for cost/profit with tax/misc
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -677,13 +678,40 @@ export function DayEndPage() {
                 {/* Profit Section */}
                 <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-emerald-700">Estimated Profit</p>
-                    <p className="text-lg font-bold text-emerald-700">{formatCurrency(preview.totalProfit)}</p>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-emerald-700">Estimated Profit</p>
+                        <button
+                          type="button"
+                          onClick={() => setIncludeTaxMisc(!includeTaxMisc)}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                            includeTaxMisc
+                              ? "bg-emerald-200 text-emerald-800"
+                              : "bg-white text-emerald-600"
+                          }`}
+                          title="Toggle to show profit with/without purchase tax & misc charges"
+                        >
+                          {includeTaxMisc ? "Net" : "Gross"}
+                        </button>
+                      </div>
+                      <p className="text-lg font-bold text-emerald-700">
+                        {formatCurrency(preview.totalProfit)}
+                      </p>
+                      {includeTaxMisc && (
+                        <p className="mt-1 text-[10px] text-emerald-500">
+                          Note: Net profit calculated on save
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <div className="mt-2 flex items-center justify-between text-xs text-emerald-600">
                     <p>Cost: {formatCurrency(preview.totalCost)}</p>
                     <p>Margin: {preview.profitMargin.toFixed(1)}%</p>
                   </div>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3">
+                  <p className="text-slate-500">Revenue</p>
+                  <p className="text-lg font-semibold text-slate-900">{formatCurrency(preview.totalRevenue)}</p>
                 </div>
                 <div className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3">
                   <p className="text-slate-500">Units sold</p>
@@ -803,15 +831,15 @@ export function DayEndPage() {
 
       {/* Recent Reports - At Bottom */}
       <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-base font-semibold text-slate-900">Recent day-end reports</p>
-            <p className="text-xs text-slate-500">Last 30 days</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-base font-semibold text-slate-900">Recent day-end reports</p>
+              <p className="text-xs text-slate-500">Last 30 days</p>
+            </div>
+            <button type="button" onClick={() => reportsQuery.refetch()} className="text-xs font-semibold text-brand-600">
+              Refresh
+            </button>
           </div>
-          <button type="button" onClick={() => reportsQuery.refetch()} className="text-xs font-semibold text-brand-600">
-            Refresh
-          </button>
-        </div>
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-400">
@@ -832,8 +860,10 @@ export function DayEndPage() {
                     <td className="py-3 text-slate-600">{formatNumber(report.totalUnitsSold ?? 0)}</td>
                     <td className="py-3 text-slate-900">{formatCurrency(report.totalSalesAmount ?? 0)}</td>
                     <td className="py-3">
-                      {report.totalProfit ? (
-                        <span className="font-semibold text-emerald-600">{formatCurrency(report.totalProfit)}</span>
+                      {report.totalProfit !== null && report.totalProfit !== undefined ? (
+                        <span className="font-semibold text-emerald-600">
+                          {formatCurrency(Number(report.totalProfit))}
+                        </span>
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}
@@ -881,8 +911,10 @@ export function DayEndPage() {
                           <div className="flex flex-wrap gap-4">
                             <p>Belt markup: {formatCurrency(report.beltMarkupRupees ?? 0)}</p>
                             {report.totalCost && <p>Total Cost: {formatCurrency(report.totalCost)}</p>}
-                            {report.totalProfit && (
-                              <p className="font-semibold text-emerald-600">Total Profit: {formatCurrency(report.totalProfit)}</p>
+                            {report.totalProfit !== null && report.totalProfit !== undefined && (
+                              <p className="font-semibold text-emerald-600">
+                                Total Profit: {formatCurrency(Number(report.totalProfit))}
+                              </p>
                             )}
                           </div>
                           <div className="overflow-x-auto">
@@ -913,7 +945,9 @@ export function DayEndPage() {
                                       <td className="py-1">{formatNumber(line.quantitySoldUnits)}</td>
                                       <td className="py-1">{formatCurrency(line.lineRevenue)}</td>
                                       <td className="py-1 text-slate-500">{line.lineCost ? formatCurrency(line.lineCost) : "—"}</td>
-                                      <td className="py-1 font-semibold text-emerald-600">{line.lineProfit ? formatCurrency(line.lineProfit) : "—"}</td>
+                                      <td className="py-1 font-semibold text-emerald-600">
+                                        {line.lineProfit ? formatCurrency(line.lineProfit) : "—"}
+                                      </td>
                                     </tr>
                                   );
                                 })}

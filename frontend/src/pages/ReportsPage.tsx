@@ -26,6 +26,7 @@ import type {
   AnalyticsTimeSeries,
   DailyPerformanceAnalytics,
   DailyTopItemsAnalytics,
+  DayEndReport,
   Item,
   ProductSalesAnalytics,
   TopItemsAnalytics,
@@ -76,6 +77,7 @@ export function ReportsPage() {
   const [stockHealthFilter, setStockHealthFilter] = useState<StockHealthFilter>("ALL");
   const [inventorySearch, setInventorySearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [includeTaxMisc, setIncludeTaxMisc] = useState(false); // Toggle for cost/profit with tax/misc
   const reportRef = useRef<HTMLDivElement>(null);
 
   const [dailyLeadersDraft, setDailyLeadersDraft] = useState(() => ({
@@ -178,6 +180,33 @@ export function ReportsPage() {
     queryFn: async () => {
       const response = await api.get<{ items: Item[] }>("/items");
       return response.data.items;
+    },
+  });
+
+  const reportsQuery = useQuery({
+    queryKey: ["day-end-reports", selectedRange],
+    queryFn: async () => {
+      const response = await api.get<{ reports: DayEndReport[] }>("/day-end-reports", {
+        params: {
+          startDate: selectedRange.startDate,
+          endDate: selectedRange.endDate,
+        },
+      });
+      return response.data.reports;
+    },
+  });
+
+  // Fetch purchases for the date range to calculate total tax/misc
+  const purchasesQuery = useQuery({
+    queryKey: ["purchases", selectedRange],
+    queryFn: async () => {
+      const response = await api.get<{ purchases: Array<{ taxAmount?: string | number | null; miscellaneousCharges?: string | number | null }> }>("/purchases", {
+        params: {
+          startDate: selectedRange.startDate,
+          endDate: selectedRange.endDate,
+        },
+      });
+      return response.data.purchases;
     },
   });
 
@@ -357,6 +386,27 @@ export function ReportsPage() {
   const dailyTopItems = dailyTopItemsQuery.data?.days ?? [];
   const cumulativeTotal = cumulativeSeries.at(-1)?.cumulative ?? 0;
 
+  // Calculate gross profit from all reports in the selected range
+  const grossProfit = useMemo(() => {
+    if (!reportsQuery.data) return 0;
+    return reportsQuery.data.reduce((sum, report) => {
+      return sum + Number(report.totalProfit ?? 0);
+    }, 0);
+  }, [reportsQuery.data]);
+
+  // Calculate total tax/misc from all purchases in the selected range
+  const totalTaxMisc = useMemo(() => {
+    if (!purchasesQuery.data) return 0;
+    return purchasesQuery.data.reduce((sum, purchase) => {
+      const tax = Number(purchase.taxAmount ?? 0);
+      const misc = Number(purchase.miscellaneousCharges ?? 0);
+      return sum + tax + misc;
+    }, 0);
+  }, [purchasesQuery.data]);
+
+  // Calculate final profit based on toggle
+  const totalProfit = includeTaxMisc ? grossProfit - totalTaxMisc : grossProfit;
+
   const handleApplyCustomRange = () => {
     if (!customRange.startDate || !customRange.endDate) {
       toast.error("Select both start and end dates");
@@ -500,6 +550,31 @@ export function ReportsPage() {
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase text-slate-400">Total revenue</p>
           <p className="text-2xl font-semibold text-slate-900">{formatCurrency(summary?.totalRevenue ?? 0)}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-xs uppercase text-slate-400">Total profit</p>
+              <p className="text-2xl font-semibold text-emerald-700">
+                {formatCurrency(totalProfit)}
+              </p>
+              <p className="mt-1 text-[10px] text-slate-500">
+                {includeTaxMisc ? "Net (after tax/misc)" : "Gross (before tax/misc)"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIncludeTaxMisc(!includeTaxMisc)}
+              className={`rounded-full px-2 py-1 text-[10px] font-semibold transition ${
+                includeTaxMisc
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+              title="Toggle to show profit with/without purchase tax & misc charges"
+            >
+              {includeTaxMisc ? "Net" : "Gross"}
+            </button>
+          </div>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase text-slate-400">Total units</p>

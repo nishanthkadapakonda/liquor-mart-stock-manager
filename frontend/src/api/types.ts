@@ -75,6 +75,7 @@ export interface DayEndReportLine {
   costPriceAtSale?: string | null;
   lineCost?: string | null;
   lineProfit?: string | null;
+  lineNetProfit?: string | null;
 }
 
 export interface DayEndReport {
@@ -87,6 +88,7 @@ export interface DayEndReport {
   beltRevenue?: string | null;
   totalCost?: string | null;
   totalProfit?: string | null;
+  totalNetProfit?: string | null;
   notes?: string | null;
   lines: DayEndReportLine[];
 }

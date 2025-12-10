@@ -55,6 +55,7 @@ const emptyItemForm = {
   mrpPrice: "",
   purchaseCostPrice: "",
   reorderLevel: "",
+  currentStockUnits: "",
 };
 
 // Auto-generate SKU from composite key fields
@@ -137,6 +138,7 @@ export function ItemsPage() {
         mrpPrice: Number(form.mrpPrice),
         purchaseCostPrice: form.purchaseCostPrice ? Number(form.purchaseCostPrice) : undefined,
         reorderLevel: form.reorderLevel ? Number(form.reorderLevel) : undefined,
+        currentStockUnits: form.currentStockUnits ? Number(form.currentStockUnits) : undefined,
       };
 
       const editedItemId = isEditing && editingItem ? editingItem.id : null;
@@ -208,6 +210,7 @@ export function ItemsPage() {
         item.reorderLevel !== null && item.reorderLevel !== undefined
           ? String(item.reorderLevel)
           : "",
+      currentStockUnits: String(item.currentStockUnits ?? 0),
     });
   };
 
@@ -573,15 +576,18 @@ export function ItemsPage() {
                   category: "Category",
                   volumeMl: "Bottle volume (ml)",
                   reorderLevel: "Reorder Level",
+                  ...(isEditing ? { currentStockUnits: "Current Stock (units)" } : {}),
                 }).map(([key, label]) => (
                   <div key={key}>
                     <label className="text-xs font-medium text-slate-500">{label}</label>
                     <input
                       type={
-                        key === "unitsPerPack" || key === "volumeMl" || key === "mrpPrice" || key === "purchaseCostPrice" || key === "reorderLevel"
+                        key === "unitsPerPack" || key === "volumeMl" || key === "mrpPrice" || key === "purchaseCostPrice" || key === "reorderLevel" || key === "currentStockUnits"
                           ? "number"
                           : "text"
                       }
+                      step={key === "currentStockUnits" || key === "unitsPerPack" || key === "reorderLevel" ? "1" : key === "mrpPrice" || key === "purchaseCostPrice" ? "0.0001" : undefined}
+                      min={key === "currentStockUnits" || key === "unitsPerPack" || key === "reorderLevel" ? "0" : undefined}
                       placeholder={key === "sku" ? "Auto-generated from Brand# + Size + Issue" : undefined}
                       readOnly={key === "sku"}
                       value={(form as Record<string, string>)[key] ?? ""}

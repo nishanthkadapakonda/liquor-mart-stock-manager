@@ -121,9 +121,9 @@ router.post(
           currentStockUnits: currentStockUnits ?? 0,
           reorderLevel: reorderLevel ?? null,
           isActive: isActive ?? true,
-          mrpPrice: new Prisma.Decimal(Math.round(mrpPrice * 100) / 100),
+          mrpPrice: new Prisma.Decimal(Math.round(mrpPrice * 10000) / 10000),
           purchaseCostPrice:
-            purchaseCostPrice !== undefined ? new Prisma.Decimal(Math.round(purchaseCostPrice * 100) / 100) : null,
+            purchaseCostPrice !== undefined ? new Prisma.Decimal(Math.round(purchaseCostPrice * 10000) / 10000) : null,
         },
       });
       res.status(201).json({ item });
@@ -202,10 +202,10 @@ router.put(
       data.reorderLevel = reorderLevel ?? null;
     }
     if (mrpPrice !== undefined) {
-      data.mrpPrice = new Prisma.Decimal(Math.round(mrpPrice * 100) / 100);
+      data.mrpPrice = new Prisma.Decimal(Math.round(mrpPrice * 10000) / 10000);
     }
     if (purchaseCostPrice !== undefined) {
-      data.purchaseCostPrice = new Prisma.Decimal(Math.round(purchaseCostPrice * 100) / 100);
+      data.purchaseCostPrice = new Prisma.Decimal(Math.round(purchaseCostPrice * 10000) / 10000);
     }
     const item = await prisma.item.update({
       where: { id: Number(id) },
@@ -289,8 +289,8 @@ router.get(
         lineTotalPrice: line.lineTotalPrice ? Number(line.lineTotalPrice) : null,
         // Running calculations at this point in time
         runningTotalUnits,
-        runningTotalValue: Math.round(runningTotalValue * 100) / 100,
-        weightedAvgAtPurchase: Math.round(weightedAvgAtPurchase * 100) / 100,
+        runningTotalValue: Math.round(runningTotalValue * 10000) / 10000,
+        weightedAvgAtPurchase: Math.round(weightedAvgAtPurchase * 10000) / 10000,
       };
     });
 
@@ -306,8 +306,8 @@ router.get(
       summary: {
         totalPurchases: purchases.length,
         totalUnitsPurchased: runningTotalUnits,
-        totalValuePurchased: Math.round(runningTotalValue * 100) / 100,
-        currentWeightedAvg: runningTotalUnits > 0 ? Math.round((runningTotalValue / runningTotalUnits) * 100) / 100 : 0,
+        totalValuePurchased: Math.round(runningTotalValue * 10000) / 10000,
+        currentWeightedAvg: runningTotalUnits > 0 ? Math.round((runningTotalValue / runningTotalUnits) * 10000) / 10000 : 0,
       },
     });
   }),

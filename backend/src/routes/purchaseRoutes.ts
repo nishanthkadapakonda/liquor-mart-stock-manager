@@ -23,6 +23,8 @@ const purchaseLineSchema = z.object({
   volumeMl: z.number().int().nonnegative().optional(),
   mrpPrice: z.number().nonnegative(),
   unitCostPrice: z.number().nonnegative(),
+  caseCostPrice: z.number().nonnegative().optional(),
+  lineTotalPrice: z.number().nonnegative().optional(),
   quantityUnits: z.number().int().positive(),
   casesQuantity: z.number().int().nonnegative().optional(),
   reorderLevel: z.number().int().nonnegative().optional(),
@@ -162,6 +164,8 @@ router.post(
       allowItemCreation: true,
       ...(payload.supplierName ? { supplierName: payload.supplierName } : {}),
       ...(payload.notes ? { notes: payload.notes } : {}),
+      ...(payload.taxAmount !== undefined ? { taxAmount: payload.taxAmount } : {}),
+      ...(payload.miscellaneousCharges !== undefined ? { miscellaneousCharges: payload.miscellaneousCharges } : {}),
     });
     res.status(201).json(result);
   }),

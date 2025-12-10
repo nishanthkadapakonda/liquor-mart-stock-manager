@@ -4,7 +4,7 @@ import { SalesChannel } from "../types/domain";
 
 // Helper function to round prices to 2 decimal places
 function roundPrice(value: number): number {
-  return Math.round(value * 100) / 100;
+  return Math.round(value * 10000) / 10000;
 }
 
 export interface DayEndLineInput {
@@ -31,12 +31,9 @@ interface PreparedLine {
   mrpPrice: number;
   sellingPricePerUnit: number;
   lineRevenue: number;
-  costPriceAtSale: number;              // Base cost per unit (without tax/misc)
-  costPriceAtSaleWithCharges: number;   // Total cost per unit (with tax/misc)
-  lineCost: number;                      // Gross cost (without tax/misc)
-  lineCostWithCharges: number;          // Net cost (with tax/misc)
-  lineProfit: number;                    // Gross profit (revenue - base cost)
-  lineNetProfit: number;                // Net profit (revenue - total cost)
+  costPriceAtSale: number;              // Cost per unit (item cost only, no tax/misc)
+  lineCost: number;                      // Line cost (item cost only)
+  lineProfit: number;                    // Gross profit (revenue - item cost)
 }
 
 export async function previewDayEndReport(input: DayEndReportInput, editingReportId?: number) {
@@ -97,6 +94,38 @@ export async function createDayEndReport(input: DayEndReportInput) {
     }
 
     const summary = summarize(prepared.lines);
+    
+    // Calculate net profit by subtracting purchase-level tax/misc proportionally
+    const purchasesUpToDate = await tx.purchase.findMany({
+      where: {
+        purchaseDate: {
+          lte: new Date(input.reportDate),
+        },
+      },
+      include: {
+        lineItems: true,
+      },
+    });
+    
+    // Calculate total item costs and total tax/misc from all purchases
+    let totalPurchaseItemCosts = 0;
+    let totalPurchaseTaxMisc = 0;
+    for (const purchase of purchasesUpToDate) {
+      const purchaseItemCost = purchase.lineItems.reduce((sum, line) => 
+        sum + (Number(line.unitCostPrice) * line.quantityUnits), 0
+      );
+      totalPurchaseItemCosts += purchaseItemCost;
+      totalPurchaseTaxMisc += Number(purchase.taxAmount ?? 0) + Number(purchase.miscellaneousCharges ?? 0);
+    }
+    
+    // Calculate proportional share: (item costs in this report) / (total item costs from purchases)
+    const taxMiscRatio = totalPurchaseItemCosts > 0 ? summary.totalCost / totalPurchaseItemCosts : 0;
+    const allocatedTaxMisc = totalPurchaseTaxMisc * taxMiscRatio;
+    
+    // Net profit = gross profit - proportional share of purchase tax/misc
+    const totalNetProfit = summary.totalProfit - allocatedTaxMisc;
+    const roundedNetProfit = Math.round(totalNetProfit * 10000) / 10000;
+    
     const report = await tx.dayEndReport.create({
       data: {
         reportDate: new Date(input.reportDate),
@@ -106,9 +135,8 @@ export async function createDayEndReport(input: DayEndReportInput) {
         retailRevenue: new Prisma.Decimal(roundPrice(summary.retailRevenue)),
         beltRevenue: new Prisma.Decimal(roundPrice(summary.beltRevenue)),
         totalCost: new Prisma.Decimal(roundPrice(summary.totalCost)),
-        totalCostWithCharges: new Prisma.Decimal(roundPrice(summary.totalCostWithCharges)),
         totalProfit: new Prisma.Decimal(roundPrice(summary.totalProfit)),
-        totalNetProfit: new Prisma.Decimal(roundPrice(summary.totalNetProfit)),
+        totalNetProfit: new Prisma.Decimal(roundedNetProfit),
         notes: input.notes ?? null,
       },
     });
@@ -124,11 +152,10 @@ export async function createDayEndReport(input: DayEndReportInput) {
           sellingPricePerUnit: new Prisma.Decimal(roundPrice(line.sellingPricePerUnit)),
           lineRevenue: new Prisma.Decimal(roundPrice(line.lineRevenue)),
           costPriceAtSale: new Prisma.Decimal(roundPrice(line.costPriceAtSale)),
-          costPriceAtSaleWithCharges: new Prisma.Decimal(roundPrice(line.costPriceAtSaleWithCharges)),
           lineCost: new Prisma.Decimal(roundPrice(line.lineCost)),
-          lineCostWithCharges: new Prisma.Decimal(roundPrice(line.lineCostWithCharges)),
           lineProfit: new Prisma.Decimal(roundPrice(line.lineProfit)),
-          lineNetProfit: new Prisma.Decimal(roundPrice(line.lineNetProfit)),
+          // Line net profit: proportional share of purchase tax/misc
+          lineNetProfit: new Prisma.Decimal(roundPrice(line.lineProfit - (allocatedTaxMisc * (line.lineCost / summary.totalCost || 0)))),
         },
       });
     }
@@ -151,16 +178,13 @@ export async function createDayEndReport(input: DayEndReportInput) {
       }
       
       const weightedAvg = Number(item.weightedAvgCostPrice ?? 0);
-      const weightedAvgWithCharges = Number(item.weightedAvgTotalCostPrice ?? item.weightedAvgCostPrice ?? 0);
       const newTotalValue = weightedAvg * newStock;
-      const newTotalValueWithCharges = weightedAvgWithCharges * newStock;
       
       await tx.item.update({
         where: { id: agg.itemId },
         data: {
           currentStockUnits: newStock,
           totalInventoryValue: newTotalValue > 0 ? new Prisma.Decimal(roundPrice(newTotalValue)) : null,
-          totalInventoryValueWithCharges: newTotalValueWithCharges > 0 ? new Prisma.Decimal(roundPrice(newTotalValueWithCharges)) : null,
         },
       });
     }
@@ -226,6 +250,38 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
     }
 
     const summary = summarize(prepared.lines);
+    
+    // Calculate net profit by subtracting purchase-level tax/misc proportionally
+    const purchasesUpToDate = await tx.purchase.findMany({
+      where: {
+        purchaseDate: {
+          lte: new Date(input.reportDate),
+        },
+      },
+      include: {
+        lineItems: true,
+      },
+    });
+    
+    // Calculate total item costs and total tax/misc from all purchases
+    let totalPurchaseItemCosts = 0;
+    let totalPurchaseTaxMisc = 0;
+    for (const purchase of purchasesUpToDate) {
+      const purchaseItemCost = purchase.lineItems.reduce((sum, line) => 
+        sum + (Number(line.unitCostPrice) * line.quantityUnits), 0
+      );
+      totalPurchaseItemCosts += purchaseItemCost;
+      totalPurchaseTaxMisc += Number(purchase.taxAmount ?? 0) + Number(purchase.miscellaneousCharges ?? 0);
+    }
+    
+    // Calculate proportional share: (item costs in this report) / (total item costs from purchases)
+    const taxMiscRatio = totalPurchaseItemCosts > 0 ? summary.totalCost / totalPurchaseItemCosts : 0;
+    const allocatedTaxMisc = totalPurchaseTaxMisc * taxMiscRatio;
+    
+    // Net profit = gross profit - proportional share of purchase tax/misc
+    const totalNetProfit = summary.totalProfit - allocatedTaxMisc;
+    const roundedNetProfit = Math.round(totalNetProfit * 10000) / 10000;
+    
     const report = await tx.dayEndReport.update({
       where: { id: reportId },
       data: {
@@ -236,14 +292,17 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
         retailRevenue: new Prisma.Decimal(roundPrice(summary.retailRevenue)),
         beltRevenue: new Prisma.Decimal(roundPrice(summary.beltRevenue)),
         totalCost: new Prisma.Decimal(roundPrice(summary.totalCost)),
-        totalCostWithCharges: new Prisma.Decimal(roundPrice(summary.totalCostWithCharges)),
         totalProfit: new Prisma.Decimal(roundPrice(summary.totalProfit)),
-        totalNetProfit: new Prisma.Decimal(roundPrice(summary.totalNetProfit)),
+        totalNetProfit: new Prisma.Decimal(roundedNetProfit),
         notes: input.notes ?? null,
       },
     });
 
     for (const line of prepared.lines) {
+      // Calculate line-level net profit proportionally
+      const lineTaxMiscShare = summary.totalCost > 0 ? (line.lineCost / summary.totalCost) * allocatedTaxMisc : 0;
+      const lineNetProfit = line.lineProfit - lineTaxMiscShare;
+      
       await tx.dayEndReportLine.create({
         data: {
           reportId,
@@ -254,11 +313,9 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
           sellingPricePerUnit: new Prisma.Decimal(roundPrice(line.sellingPricePerUnit)),
           lineRevenue: new Prisma.Decimal(roundPrice(line.lineRevenue)),
           costPriceAtSale: new Prisma.Decimal(roundPrice(line.costPriceAtSale)),
-          costPriceAtSaleWithCharges: new Prisma.Decimal(roundPrice(line.costPriceAtSaleWithCharges)),
           lineCost: new Prisma.Decimal(roundPrice(line.lineCost)),
-          lineCostWithCharges: new Prisma.Decimal(roundPrice(line.lineCostWithCharges)),
           lineProfit: new Prisma.Decimal(roundPrice(line.lineProfit)),
-          lineNetProfit: new Prisma.Decimal(roundPrice(line.lineNetProfit)),
+          lineNetProfit: new Prisma.Decimal(roundPrice(lineNetProfit)),
         },
       });
     }
@@ -281,16 +338,13 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
       }
       
       const weightedAvg = Number(item.weightedAvgCostPrice ?? 0);
-      const weightedAvgWithCharges = Number(item.weightedAvgTotalCostPrice ?? item.weightedAvgCostPrice ?? 0);
       const newTotalValue = weightedAvg * newStock;
-      const newTotalValueWithCharges = weightedAvgWithCharges * newStock;
       
       await tx.item.update({
         where: { id: agg.itemId },
         data: {
           currentStockUnits: newStock,
           totalInventoryValue: newTotalValue > 0 ? new Prisma.Decimal(roundPrice(newTotalValue)) : null,
-          totalInventoryValueWithCharges: newTotalValueWithCharges > 0 ? new Prisma.Decimal(roundPrice(newTotalValueWithCharges)) : null,
         },
       });
     }
@@ -382,15 +436,10 @@ async function prepareLines(
     const quantity = line.quantitySoldUnits;
     const lineRevenue = quantity * sellingPricePerUnit;
     
-    // Use weighted average cost for profit calculation (base cost, without tax/misc)
+    // Use weighted average cost for profit calculation (item cost only, no tax/misc)
     const costPriceAtSale = Number(item.weightedAvgCostPrice ?? item.purchaseCostPrice ?? 0);
     const lineCost = quantity * costPriceAtSale;
     const lineProfit = lineRevenue - lineCost;
-
-    // Use weighted average total cost (with tax/misc) for net profit calculation
-    const costPriceAtSaleWithCharges = Number(item.weightedAvgTotalCostPrice ?? item.weightedAvgCostPrice ?? item.purchaseCostPrice ?? 0);
-    const lineCostWithCharges = quantity * costPriceAtSaleWithCharges;
-    const lineNetProfit = lineRevenue - lineCostWithCharges;
 
     prepared.push({
       itemId: item.id,
@@ -402,11 +451,8 @@ async function prepareLines(
       sellingPricePerUnit,
       lineRevenue,
       costPriceAtSale,
-      costPriceAtSaleWithCharges,
       lineCost,
-      lineCostWithCharges,
       lineProfit,
-      lineNetProfit,
     });
 
     // Calculate effective available stock:
@@ -463,18 +509,14 @@ function summarize(lines: PreparedLine[]) {
   let totalUnits = 0;
   let retailRevenue = 0;
   let beltRevenue = 0;
-  let totalCost = 0;                    // Gross cost (without tax/misc)
-  let totalCostWithCharges = 0;         // Net cost (with tax/misc)
-  let totalProfit = 0;                  // Gross profit
-  let totalNetProfit = 0;               // Net profit
+  let totalCost = 0;                    // Item cost only (no tax/misc)
+  let totalProfit = 0;                  // Gross profit (revenue - item cost)
 
   for (const line of lines) {
     totalRevenue += line.lineRevenue;
     totalUnits += line.quantitySoldUnits;
     totalCost += line.lineCost;
-    totalCostWithCharges += line.lineCostWithCharges;
     totalProfit += line.lineProfit;
-    totalNetProfit += line.lineNetProfit;
     if (line.channel === "RETAIL") {
       retailRevenue += line.lineRevenue;
     } else {
@@ -488,10 +530,7 @@ function summarize(lines: PreparedLine[]) {
     retailRevenue,
     beltRevenue,
     totalCost,
-    totalCostWithCharges,
     totalProfit,
-    totalNetProfit,
     profitMargin: totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0,
-    netProfitMargin: totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0,
   };
 }

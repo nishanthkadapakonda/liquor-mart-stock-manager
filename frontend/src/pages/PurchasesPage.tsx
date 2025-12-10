@@ -23,6 +23,8 @@ interface ManualLine {
   quantityUnits: string;
   mrpPrice: string;
   unitCostPrice: string;
+  caseCostPrice: string;
+  lineTotalPrice: string;
 }
 
 function emptyLine(): ManualLine {
@@ -41,6 +43,8 @@ function emptyLine(): ManualLine {
     quantityUnits: "",
     mrpPrice: "",
     unitCostPrice: "",
+    caseCostPrice: "",
+    lineTotalPrice: "",
   };
 }
 
@@ -218,6 +222,95 @@ export function PurchasesPage() {
           updated.sku = deriveSku(updated.brandNumber, updated.sizeCode, updated.packType);
         }
         
+        // Auto-calculate prices based on what changed
+        const numValue = value !== "" ? Number(value) : 0;
+        const quantityUnits = updated.quantityUnits !== "" ? Number(updated.quantityUnits) : 0;
+        const casesQuantity = updated.casesQuantity !== "" ? Number(updated.casesQuantity) : 0;
+        const unitsPerPack = updated.unitsPerPack !== "" ? Number(updated.unitsPerPack) : 0;
+        const unitCostPrice = updated.unitCostPrice !== "" ? Number(updated.unitCostPrice) : 0;
+        const caseCostPrice = updated.caseCostPrice !== "" ? Number(updated.caseCostPrice) : 0;
+        const lineTotalPrice = updated.lineTotalPrice !== "" ? Number(updated.lineTotalPrice) : 0;
+        
+        // When lineTotalPrice changes: calculate unitCostPrice and caseCostPrice
+        if (key === "lineTotalPrice" && numValue > 0) {
+          if (quantityUnits > 0) {
+            updated.unitCostPrice = (numValue / quantityUnits).toFixed(2);
+          }
+          if (casesQuantity > 0) {
+            updated.caseCostPrice = (numValue / casesQuantity).toFixed(2);
+          }
+        }
+        
+        // When unitCostPrice changes: calculate caseCostPrice and lineTotalPrice
+        else if (key === "unitCostPrice" && numValue > 0) {
+          if (unitsPerPack > 0) {
+            updated.caseCostPrice = (numValue * unitsPerPack).toFixed(2);
+          }
+          if (quantityUnits > 0) {
+            updated.lineTotalPrice = (numValue * quantityUnits).toFixed(2);
+          }
+        }
+        
+        // When caseCostPrice changes: calculate unitCostPrice and lineTotalPrice
+        else if (key === "caseCostPrice" && numValue > 0) {
+          if (unitsPerPack > 0) {
+            updated.unitCostPrice = (numValue / unitsPerPack).toFixed(2);
+          }
+          if (casesQuantity > 0) {
+            updated.lineTotalPrice = (numValue * casesQuantity).toFixed(2);
+          }
+        }
+        
+        // When quantityUnits changes: recalculate lineTotalPrice
+        else if (key === "quantityUnits") {
+          if (numValue > 0 && unitCostPrice > 0) {
+            updated.lineTotalPrice = (unitCostPrice * numValue).toFixed(2);
+          } else if (numValue > 0 && caseCostPrice > 0 && unitsPerPack > 0) {
+            // Calculate from case cost
+            const calculatedUnitCost = caseCostPrice / unitsPerPack;
+            updated.lineTotalPrice = (calculatedUnitCost * numValue).toFixed(2);
+            if (!updated.unitCostPrice || updated.unitCostPrice === "") {
+              updated.unitCostPrice = calculatedUnitCost.toFixed(2);
+            }
+          } else if (numValue === 0) {
+            updated.lineTotalPrice = "";
+          }
+        }
+        
+        // When casesQuantity changes: recalculate lineTotalPrice and quantityUnits
+        else if (key === "casesQuantity") {
+          if (numValue > 0 && caseCostPrice > 0) {
+            updated.lineTotalPrice = (caseCostPrice * numValue).toFixed(2);
+          } else if (numValue > 0 && unitCostPrice > 0 && unitsPerPack > 0) {
+            // Calculate from unit cost
+            const calculatedCaseCost = unitCostPrice * unitsPerPack;
+            updated.lineTotalPrice = (calculatedCaseCost * numValue).toFixed(2);
+            if (!updated.caseCostPrice || updated.caseCostPrice === "") {
+              updated.caseCostPrice = calculatedCaseCost.toFixed(2);
+            }
+          }
+          // Auto-calculate quantityUnits if unitsPerPack is available
+          if (numValue > 0 && unitsPerPack > 0) {
+            updated.quantityUnits = String(numValue * unitsPerPack);
+          } else if (numValue === 0) {
+            updated.quantityUnits = "";
+            updated.lineTotalPrice = "";
+          }
+        }
+        
+        // When unitsPerPack changes: recalculate caseCostPrice and quantityUnits
+        else if (key === "unitsPerPack") {
+          if (numValue > 0 && unitCostPrice > 0) {
+            updated.caseCostPrice = (unitCostPrice * numValue).toFixed(2);
+          } else if (numValue > 0 && caseCostPrice > 0) {
+            updated.unitCostPrice = (caseCostPrice / numValue).toFixed(2);
+          }
+          // Auto-calculate quantityUnits if casesQuantity is available
+          if (numValue > 0 && casesQuantity > 0) {
+            updated.quantityUnits = String(casesQuantity * numValue);
+          }
+        }
+        
         return updated;
       }),
     );
@@ -236,6 +329,8 @@ export function PurchasesPage() {
             ? unitsPerPack * casesQuantity
             : 0;
         const unitCostPrice = Number(line.unitCostPrice || line.mrpPrice || 0);
+        const caseCostPrice = line.caseCostPrice !== "" ? Number(line.caseCostPrice) : undefined;
+        const lineTotalPrice = line.lineTotalPrice !== "" ? Number(line.lineTotalPrice) : undefined;
         return {
           itemId: line.itemId,
           sku: line.sku || undefined,
@@ -250,6 +345,8 @@ export function PurchasesPage() {
           quantityUnits,
           mrpPrice: Number(line.mrpPrice || 0),
           unitCostPrice,
+          caseCostPrice,
+          lineTotalPrice,
         };
       });
 
@@ -407,6 +504,14 @@ export function PurchasesPage() {
             line.unitCostPrice !== null && line.unitCostPrice !== undefined
               ? String(line.unitCostPrice)
               : "",
+          caseCostPrice:
+            line.caseCostPrice !== null && line.caseCostPrice !== undefined
+              ? String(line.caseCostPrice)
+              : "",
+          lineTotalPrice:
+            line.lineTotalPrice !== null && line.lineTotalPrice !== undefined
+              ? String(line.lineTotalPrice)
+              : "",
         })),
       );
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -495,34 +600,36 @@ export function PurchasesPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <form onSubmit={handleManualSubmit} className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-base font-semibold text-slate-900">
-              {editingPurchase ? "Edit purchase" : "Manual entry"}
-            </p>
+        <form onSubmit={handleManualSubmit} className="rounded-2xl border border-slate-100 bg-white shadow-sm">
+          <div className="p-5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-base font-semibold text-slate-900">
+                {editingPurchase ? "Edit purchase" : "Manual entry"}
+              </p>
+              {editingPurchase && (
+                <button
+                  type="button"
+                  onClick={resetManualForm}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                >
+                  Cancel edit
+                </button>
+              )}
+            </div>
             {editingPurchase && (
-              <button
-                type="button"
-                onClick={resetManualForm}
-                className="text-xs font-semibold text-slate-500 hover:text-slate-700"
-              >
-                Cancel edit
-              </button>
+              <p className="mt-1 text-xs text-slate-500">
+                Updating record from {dayjs(editingPurchase.purchaseDate).format("DD MMM YYYY")}
+              </p>
+            )}
+            {!canEdit && (
+              <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                You are in view-only mode. Admins can add or edit purchase records.
+              </p>
             )}
           </div>
-          {editingPurchase && (
-            <p className="mt-1 text-xs text-slate-500">
-              Updating record from {dayjs(editingPurchase.purchaseDate).format("DD MMM YYYY")}
-            </p>
-          )}
-          {!canEdit && (
-            <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
-              You are in view-only mode. Admins can add or edit purchase records.
-            </p>
-          )}
           <fieldset
             disabled={!canEdit}
-            className={canEdit ? "" : "mt-4 cursor-not-allowed opacity-60"}
+            className={`${canEdit ? "" : "cursor-not-allowed opacity-60"} px-5 pb-5`}
           >
             <div className="mt-4 flex flex-col gap-4 lg:flex-row">
               <div className="flex-1">
@@ -562,7 +669,7 @@ export function PurchasesPage() {
                 <label className="text-xs font-medium text-slate-500">Tax Amount (₹)</label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.0001"
                   min="0"
                   value={taxAmount}
                   onChange={(e) => setTaxAmount(e.target.value)}
@@ -574,7 +681,7 @@ export function PurchasesPage() {
                 <label className="text-xs font-medium text-slate-500">Miscellaneous Charges (₹)</label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.0001"
                   min="0"
                   value={miscellaneousCharges}
                   onChange={(e) => setMiscellaneousCharges(e.target.value)}
@@ -584,7 +691,7 @@ export function PurchasesPage() {
               </div>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-3 max-h-[500px] overflow-y-auto pr-2">
               {manualLines.map((line, idx) => (
                 <div key={line.id} className="space-y-3 rounded-2xl border border-slate-100 p-3">
                   {/* Row 1: Brand # / Size Code / Issue Type (Primary Key) */}
@@ -671,6 +778,7 @@ export function PurchasesPage() {
                       <label className="text-xs text-slate-500">Units/case</label>
                       <input
                         type="number"
+                        step="1"
                         min={0}
                         placeholder="e.g. 12"
                         value={line.unitsPerPack}
@@ -682,6 +790,7 @@ export function PurchasesPage() {
                       <label className="text-xs text-slate-500 font-medium">Qty (Cases) *</label>
                       <input
                         type="number"
+                        step="1"
                         min={0}
                         placeholder="# cases"
                         value={line.casesQuantity}
@@ -693,6 +802,7 @@ export function PurchasesPage() {
                       <label className="text-xs text-slate-500">Total units</label>
                       <input
                         type="number"
+                        step="1"
                         min={0}
                         placeholder="Auto: cases × units"
                         value={line.quantityUnits}
@@ -702,16 +812,42 @@ export function PurchasesPage() {
                     </div>
                   </div>
 
-                  {/* Row 4: Cost Price / MRP */}
-                  <div className="grid gap-3 md:grid-cols-2">
+                  {/* Row 4: Cost Prices */}
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                     <div>
-                      <label className="text-xs text-slate-500 font-medium">Cost Price (per case) *</label>
+                      <label className="text-xs text-slate-500 font-medium">Cost Price (per unit) *</label>
                       <input
                         type="number"
+                        step="0.0001"
                         min={0}
-                        placeholder="Issue price"
+                        placeholder="Issue price per unit"
                         value={line.unitCostPrice}
                         onChange={(e) => handleManualChange(line.id, "unitCostPrice", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Cost Price (per case)</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min={0}
+                        placeholder="Optional: per case"
+                        value={line.caseCostPrice}
+                        onChange={(e) => handleManualChange(line.id, "caseCostPrice", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Total Price (line total)</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min={0}
+                        placeholder="Optional: line total"
+                        value={line.lineTotalPrice}
+                        onChange={(e) => handleManualChange(line.id, "lineTotalPrice", e.target.value)}
                         className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
                       />
                     </div>
@@ -719,6 +855,7 @@ export function PurchasesPage() {
                       <label className="text-xs text-slate-500">MRP (per unit, optional)</label>
                       <input
                         type="number"
+                        step="0.0001"
                         min={0}
                         placeholder="Uses existing if empty"
                         value={line.mrpPrice}
@@ -756,7 +893,7 @@ export function PurchasesPage() {
             </div>
             <button
               type="submit"
-              className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+              className="mt-4 mb-5 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
             >
               {editingPurchase ? "Update purchase" : "Save purchase"}
             </button>
@@ -824,7 +961,7 @@ export function PurchasesPage() {
                 <label className="text-xs text-slate-500">Tax Amount (₹)</label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.0001"
                   min="0"
                   value={importTaxAmount}
                   onChange={(e) => setImportTaxAmount(e.target.value)}
@@ -836,7 +973,7 @@ export function PurchasesPage() {
                 <label className="text-xs text-slate-500">Miscellaneous Charges (₹)</label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.0001"
                   min="0"
                   value={importMiscellaneousCharges}
                   onChange={(e) => setImportMiscellaneousCharges(e.target.value)}

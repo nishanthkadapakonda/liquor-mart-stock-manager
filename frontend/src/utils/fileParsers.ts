@@ -150,7 +150,7 @@ export async function parsePurchaseUpload(file: File): Promise<ParsedLine<Purcha
       issues.push("Computed units missing");
     }
     const unitCostPrice =
-      unitsPerPack > 0 ? Number((issuePrice / unitsPerPack).toFixed(2)) : numberOrZero(normalized.unit_cost_price);
+      unitsPerPack > 0 ? Number((issuePrice / unitsPerPack).toFixed(4)) : numberOrZero(normalized.unit_cost_price);
     if (!unitCostPrice) {
       issues.push("Derived cost per unit missing");
     }
