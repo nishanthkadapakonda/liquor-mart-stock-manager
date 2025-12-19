@@ -215,7 +215,7 @@ export function ItemsPage() {
   };
 
   const handleDelete = async (item: Item) => {
-    if (!window.confirm(`Delete ${item.name}? This will archive the item.`)) {
+    if (!window.confirm(`⚠️ WARNING: Delete "${item.name}" permanently?\n\nThis action cannot be undone. All purchase history, sales records, and stock adjustments for this item will also be permanently deleted.`)) {
       return;
     }
     try {
@@ -238,7 +238,7 @@ export function ItemsPage() {
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`Delete ${selectedIds.size} item(s)? This will archive them.`)) {
+    if (!window.confirm(`⚠️ WARNING: Permanently delete ${selectedIds.size} item(s)?\n\nThis action cannot be undone. All purchase history, sales records, and stock adjustments for these items will also be permanently deleted.`)) {
       return;
     }
     setIsDeleting(true);
@@ -373,6 +373,7 @@ export function ItemsPage() {
                 <th className="py-2">Pack/Qty</th>
                 <th className="py-2">MRP / Avg Cost</th>
                 <th className="py-2">Stock</th>
+                <th className="py-2">Total Purchased</th>
                 <th className="py-2 text-right">Actions</th>
               </tr>
             </thead>
@@ -422,6 +423,10 @@ export function ItemsPage() {
                       Reorder: {item.reorderLevel ?? lowStockQuery.data?.threshold ?? 10}
                     </p>
                   </td>
+                  <td className="py-3">
+                    <p className="font-semibold text-slate-900">{formatNumber(item.totalPurchasedQuantity ?? 0)}</p>
+                    <p className="text-xs text-slate-400">Till date</p>
+                  </td>
                   <td className="py-3 text-right text-xs">
                     <button
                       type="button"
@@ -455,7 +460,7 @@ export function ItemsPage() {
               ))}
               {visibleItems.length === 0 && (
                 <tr>
-                  <td colSpan={canEdit ? 7 : 6} className="py-6 text-center text-slate-500">
+                  <td colSpan={canEdit ? 8 : 7} className="py-6 text-center text-slate-500">
                     No items match your search.
                   </td>
                 </tr>

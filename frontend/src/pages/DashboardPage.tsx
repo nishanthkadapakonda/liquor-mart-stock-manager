@@ -12,6 +12,7 @@ const ranges = [
   { label: "7 days", value: 7 },
   { label: "14 days", value: 14 },
   { label: "30 days", value: 30 },
+  { label: "Till date", value: null },
 ];
 
 const topSellersRanges = [
@@ -22,7 +23,7 @@ const topSellersRanges = [
 ];
 
 export function DashboardPage() {
-  const [range, setRange] = useState(7);
+  const [range, setRange] = useState<number | null>(null);
   const [topSellersRange, setTopSellersRange] = useState(30);
   const [includeTaxMisc, setIncludeTaxMisc] = useState(false); // Toggle for cost/profit with tax/misc
 
@@ -30,7 +31,8 @@ export function DashboardPage() {
     queryKey: ["dashboard", range],
     queryFn: async () => {
       const endDate = dayjs().format("YYYY-MM-DD");
-      const startDate = dayjs().subtract(range - 1, "day").format("YYYY-MM-DD");
+      // For "Till date", use a very early date to get all data
+      const startDate = range === null ? "2000-01-01" : dayjs().subtract(range - 1, "day").format("YYYY-MM-DD");
       const response = await api.get<DashboardSummary>("/dashboard/summary", {
         params: { startDate, endDate },
       });
@@ -67,36 +69,25 @@ export function DashboardPage() {
     queryKey: ["purchases", range],
     queryFn: async () => {
       const endDate = dayjs().format("YYYY-MM-DD");
-      const startDate = dayjs().subtract(range - 1, "day").format("YYYY-MM-DD");
-      const response = await api.get<{ purchases: Array<{ taxAmount?: string | number | null; miscellaneousCharges?: string | number | null }> }>("/purchases", {
+      // For "Till date", use a very early date to get all data
+      const startDate = range === null ? "2000-01-01" : dayjs().subtract(range - 1, "day").format("YYYY-MM-DD");
+      const response = await api.get<{ purchases: Array<{ totalCost?: number; taxAmount?: string | number | null; miscellaneousCharges?: string | number | null }> }>("/purchases", {
         params: { startDate, endDate },
       });
       return response.data.purchases;
     },
   });
 
-  // Fetch all purchases till date to calculate total purchases
-  const allPurchasesQuery = useQuery({
-    queryKey: ["purchases", "all"],
-    queryFn: async () => {
-      const endDate = dayjs().format("YYYY-MM-DD");
-      const response = await api.get<{ purchases: Array<{ totalCost?: number; taxAmount?: string | number | null; miscellaneousCharges?: string | number | null }> }>("/purchases", {
-        params: { endDate },
-      });
-      return response.data.purchases;
-    },
-  });
-
-  // Calculate total purchases till date (including tax and misc)
+  // Calculate total purchases for the selected range (including tax and misc)
   const totalPurchases = useMemo(() => {
-    if (!allPurchasesQuery.data) return 0;
-    return allPurchasesQuery.data.reduce((sum, purchase) => {
+    if (!purchasesQuery.data) return 0;
+    return purchasesQuery.data.reduce((sum, purchase) => {
       const cost = purchase.totalCost ?? 0;
       const tax = Number(purchase.taxAmount ?? 0);
       const misc = Number(purchase.miscellaneousCharges ?? 0);
       return sum + cost + tax + misc;
     }, 0);
-  }, [allPurchasesQuery.data]);
+  }, [purchasesQuery.data]);
 
   // Calculate total profit from all reports in the range
   const grossProfit = useMemo(() => {
@@ -137,7 +128,7 @@ export function DashboardPage() {
         <div>
           <p className="text-sm uppercase text-slate-400">Overview</p>
           <h1 className="text-2xl font-semibold text-slate-900">
-            Key insights for the last {range} days
+            {range === null ? "Key insights till date" : `Key insights for the last ${range} days`}
           </h1>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-slate-200 px-2 py-1 text-sm">
@@ -191,7 +182,7 @@ export function DashboardPage() {
         <StatCard
           label="Total purchases"
           value={formatCurrency(totalPurchases)}
-          badge="Till date"
+          badge={range === null ? "Till date" : `Last ${range} days`}
         />
         <StatCard label="Units sold" value={formatNumber(data.totalUnits)} />
         <StatCard

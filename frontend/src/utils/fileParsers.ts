@@ -2,7 +2,15 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import type { DayEndLineInput, PurchaseLineInput } from "../api/types";
 
+// Security: Limit file size to prevent ReDoS attacks (10MB max)
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 async function parseFile(file: File): Promise<Record<string, unknown>[]> {
+  // Validate file size to prevent ReDoS
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error(`File size exceeds maximum allowed size of ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+  }
+
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "csv") {
     return new Promise((resolve, reject) => {
@@ -16,20 +24,58 @@ async function parseFile(file: File): Promise<Record<string, unknown>[]> {
   }
 
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
+  
+  // Security: Add options to mitigate prototype pollution
+  const workbook = XLSX.read(buffer, { 
+    type: "array",
+    cellDates: false, // Disable date parsing to reduce attack surface
+    cellNF: false, // Disable number format parsing
+    cellStyles: false, // Disable style parsing
+    sheetStubs: false, // Disable stub sheets
+  });
+  
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    throw new Error("Excel file contains no sheets");
+  }
+  
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-  return XLSX.utils.sheet_to_json(sheet, { defval: "" }) as Record<string, unknown>[];
+  
+  // Security: Use sheet_to_json with safe options and sanitize output
+  const rawData = XLSX.utils.sheet_to_json(sheet, { 
+    defval: "",
+    raw: false, // Convert all values to strings/numbers to prevent prototype pollution
+  }) as Record<string, unknown>[];
+  
+  // Security: Sanitize each row to prevent prototype pollution
+  return rawData.map((row) => {
+    // Create a new object without prototype chain
+    const sanitized = Object.create(null);
+    for (const [key, value] of Object.entries(row)) {
+      // Only allow safe keys (alphanumeric, underscore, dash)
+      const safeKey = String(key).replace(/[^a-zA-Z0-9_-]/g, '_');
+      sanitized[safeKey] = value;
+    }
+    return sanitized;
+  });
 }
 
 function normalizeRow(row: Record<string, unknown>) {
-  const normalized: Record<string, unknown> = {};
+  // Security: Use Object.create(null) to prevent prototype pollution
+  const normalized = Object.create(null);
   Object.entries(row).forEach(([key, value]) => {
+    // Sanitize key to prevent prototype pollution
     const cleanKey = key
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
+    
+    // Prevent setting __proto__ or constructor
+    if (cleanKey === '__proto__' || cleanKey === 'constructor' || cleanKey === 'prototype') {
+      return; // Skip dangerous keys
+    }
+    
     normalized[cleanKey] = value;
   });
   return normalized;

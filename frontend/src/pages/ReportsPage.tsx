@@ -523,7 +523,17 @@ export function ReportsPage() {
       item.currentStockUnits,
       item.reorderLevel ?? "",
     ]);
-    const worksheet = XLSXUtils.aoa_to_sheet([headers, ...rows]);
+    // Security: Sanitize data before creating Excel file to prevent prototype pollution
+    const sanitizedRows = rows.map((row) => 
+      row.map((cell) => {
+        // Convert to string and sanitize to prevent prototype pollution
+        const value = cell === null || cell === undefined ? '' : String(cell);
+        // Remove any potentially dangerous characters
+        return value.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+      })
+    );
+    
+    const worksheet = XLSXUtils.aoa_to_sheet([headers, ...sanitizedRows]);
     const workbook = XLSXUtils.book_new();
     XLSXUtils.book_append_sheet(workbook, worksheet, "Inventory");
     writeXlsxFile(workbook, `inventory-${dayjs().format("YYYYMMDD-HHmm")}.xlsx`);

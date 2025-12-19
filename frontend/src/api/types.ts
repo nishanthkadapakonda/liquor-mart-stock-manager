@@ -32,6 +32,7 @@ export interface Item {
   weightedAvgCostPrice?: string | number | null;
   totalInventoryValue?: string | number | null;
   currentStockUnits: number;
+  totalPurchasedQuantity?: number;
   reorderLevel?: number | null;
   isActive: boolean;
 }

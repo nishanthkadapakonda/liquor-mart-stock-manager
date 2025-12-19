@@ -479,22 +479,34 @@ export function PurchasesPage() {
       setSupplierName(purchase.supplierName ?? "");
       setNotes(purchase.notes ?? "");
       
-      // Handle taxAmount - convert to string for input field
+      // Handle taxAmount - convert to string for input field with proper rounding
       const taxValue = purchase.taxAmount;
       if (taxValue === null || taxValue === undefined) {
         setTaxAmount("");
       } else {
         const taxNum = typeof taxValue === "string" ? parseFloat(taxValue) : Number(taxValue);
-        setTaxAmount(!isNaN(taxNum) ? taxNum.toString() : "");
+        if (!isNaN(taxNum) && taxNum !== 0) {
+          // Round to 4 decimals to avoid floating-point precision issues
+          const rounded = roundTo4Decimals(taxNum);
+          setTaxAmount(rounded.toString());
+        } else {
+          setTaxAmount("");
+        }
       }
       
-      // Handle miscellaneousCharges - convert to string for input field
+      // Handle miscellaneousCharges - convert to string for input field with proper rounding
       const miscValue = purchase.miscellaneousCharges;
       if (miscValue === null || miscValue === undefined) {
         setMiscellaneousCharges("");
       } else {
         const miscNum = typeof miscValue === "string" ? parseFloat(miscValue) : Number(miscValue);
-        setMiscellaneousCharges(!isNaN(miscNum) ? miscNum.toString() : "");
+        if (!isNaN(miscNum) && miscNum !== 0) {
+          // Round to 4 decimals to avoid floating-point precision issues
+          const rounded = roundTo4Decimals(miscNum);
+          setMiscellaneousCharges(rounded.toString());
+        } else {
+          setMiscellaneousCharges("");
+        }
       }
       setManualLines(
         purchase.lineItems.map((line) => ({
@@ -545,7 +557,7 @@ export function PurchasesPage() {
   };
 
   const handleDeletePurchase = async (purchaseId: number) => {
-    if (!window.confirm("Delete this purchase? Stock levels will be adjusted.")) {
+    if (!window.confirm("⚠️ WARNING: Permanently delete this purchase?\n\nThis action cannot be undone. Stock levels will be adjusted, and this purchase record will be permanently removed from the database.")) {
       return;
     }
     try {
@@ -570,7 +582,7 @@ export function PurchasesPage() {
 
   const handleBulkDeletePurchases = async () => {
     if (selectedPurchaseIds.size === 0) return;
-    if (!window.confirm(`Delete ${selectedPurchaseIds.size} purchase(s)? Stock levels will be adjusted.`)) {
+    if (!window.confirm(`⚠️ WARNING: Permanently delete ${selectedPurchaseIds.size} purchase(s)?\n\nThis action cannot be undone. Stock levels will be adjusted, and these purchase records will be permanently removed from the database.`)) {
       return;
     }
     setIsBulkDeleting(true);
@@ -697,6 +709,13 @@ export function PurchasesPage() {
                   min="0"
                   value={taxAmount}
                   onChange={(e) => setTaxAmount(e.target.value)}
+                  onBlur={(e) => {
+                    const val = e.target.value;
+                    if (val && !isNaN(Number(val))) {
+                      const rounded = roundTo4Decimals(Number(val));
+                      setTaxAmount(rounded.toString());
+                    }
+                  }}
                   placeholder="0.00"
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
                 />
@@ -709,6 +728,13 @@ export function PurchasesPage() {
                   min="0"
                   value={miscellaneousCharges}
                   onChange={(e) => setMiscellaneousCharges(e.target.value)}
+                  onBlur={(e) => {
+                    const val = e.target.value;
+                    if (val && !isNaN(Number(val))) {
+                      const rounded = roundTo4Decimals(Number(val));
+                      setMiscellaneousCharges(rounded.toString());
+                    }
+                  }}
                   placeholder="0.00"
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
                 />
@@ -989,6 +1015,13 @@ export function PurchasesPage() {
                   min="0"
                   value={importTaxAmount}
                   onChange={(e) => setImportTaxAmount(e.target.value)}
+                  onBlur={(e) => {
+                    const val = e.target.value;
+                    if (val && !isNaN(Number(val))) {
+                      const rounded = roundTo4Decimals(Number(val));
+                      setImportTaxAmount(rounded.toString());
+                    }
+                  }}
                   placeholder="0.00"
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
                 />
@@ -1001,6 +1034,13 @@ export function PurchasesPage() {
                   min="0"
                   value={importMiscellaneousCharges}
                   onChange={(e) => setImportMiscellaneousCharges(e.target.value)}
+                  onBlur={(e) => {
+                    const val = e.target.value;
+                    if (val && !isNaN(Number(val))) {
+                      const rounded = roundTo4Decimals(Number(val));
+                      setImportMiscellaneousCharges(rounded.toString());
+                    }
+                  }}
                   placeholder="0.00"
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
                 />

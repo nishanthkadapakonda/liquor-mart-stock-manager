@@ -66,7 +66,33 @@ router.get(
       },
       orderBy: { name: "asc" },
     });
-    res.json({ items });
+
+    // Get item IDs to query purchase totals
+    const itemIds = items.map((item) => item.id);
+
+    // Calculate total purchased quantity for all items in a single query
+    const purchaseTotals = await prisma.purchaseLineItem.groupBy({
+      by: ["itemId"],
+      where: {
+        itemId: { in: itemIds },
+      },
+      _sum: {
+        quantityUnits: true,
+      },
+    });
+
+    // Create a map for quick lookup
+    const totalsMap = new Map(
+      purchaseTotals.map((total) => [total.itemId, total._sum.quantityUnits ?? 0])
+    );
+
+    // Add total purchased quantity to each item
+    const itemsWithTotalPurchased = items.map((item) => ({
+      ...item,
+      totalPurchasedQuantity: totalsMap.get(item.id) ?? 0,
+    }));
+
+    res.json({ items: itemsWithTotalPurchased });
   }),
 );
 
@@ -226,10 +252,42 @@ router.delete(
   requireAdmin,
   asyncHandler(async (req, res) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
-    await prisma.item.update({
-      where: { id: Number(id) },
-      data: { isActive: false },
+    const itemId = Number(id);
+    
+    // Check if item exists
+    const item = await prisma.item.findUnique({
+      where: { id: itemId },
     });
+    
+    if (!item) {
+      res.status(404).json({ message: "Item not found" });
+      return;
+    }
+    
+    // Hard delete: Permanently remove the item and all related records
+    // Delete related records first due to foreign key constraints
+    await prisma.$transaction(async (tx) => {
+      // Delete purchase line items that reference this item
+      await tx.purchaseLineItem.deleteMany({
+        where: { itemId },
+      });
+      
+      // Delete day-end report lines that reference this item
+      await tx.dayEndReportLine.deleteMany({
+        where: { itemId },
+      });
+      
+      // Delete stock adjustments that reference this item
+      await tx.stockAdjustment.deleteMany({
+        where: { itemId },
+      });
+      
+      // Finally, delete the item itself
+      await tx.item.delete({
+        where: { id: itemId },
+      });
+    });
+    
     res.status(204).send();
   }),
 );

@@ -329,7 +329,7 @@ export function DayEndPage() {
   };
 
   const handleDeleteReport = async (reportId: number) => {
-    if (!window.confirm("Delete this day-end report? Stock balances will be restored.")) {
+    if (!window.confirm("⚠️ WARNING: Permanently delete this day-end report?\n\nThis action cannot be undone. Stock balances will be restored, and this report will be permanently removed from the database.")) {
       return;
     }
     setDeleteInFlight(reportId);
