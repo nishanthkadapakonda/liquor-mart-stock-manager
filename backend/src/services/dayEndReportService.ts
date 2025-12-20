@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { SalesChannel } from "../types/domain";
+import { parseLocalDate, formatLocalDate } from "../utils/dateUtils";
 
 // Helper function to round prices to 4 decimal places without floating-point errors
 function roundPrice(value: number): number {
@@ -73,12 +74,13 @@ export async function createDayEndReport(input: DayEndReportInput) {
   }
 
   // Check if a report already exists for this date
+  const reportDateValue = parseLocalDate(input.reportDate);
   const existingReport = await prisma.dayEndReport.findUnique({
-    where: { reportDate: new Date(input.reportDate) },
+    where: { reportDate: reportDateValue },
   });
   if (existingReport) {
     throw new Error(
-      `A day-end report already exists for ${new Date(input.reportDate).toLocaleDateString()}. Please edit the existing report instead.`
+      `A day-end report already exists for ${formatLocalDate(reportDateValue)}. Please edit the existing report instead.`
     );
   }
 
@@ -97,10 +99,11 @@ export async function createDayEndReport(input: DayEndReportInput) {
     const summary = summarize(prepared.lines);
     
     // Calculate net profit by subtracting purchase-level tax/misc proportionally
+    const reportDateValue = parseLocalDate(input.reportDate);
     const purchasesUpToDate = await tx.purchase.findMany({
       where: {
         purchaseDate: {
-          lte: new Date(input.reportDate),
+          lte: reportDateValue,
         },
       },
       include: {
@@ -129,7 +132,7 @@ export async function createDayEndReport(input: DayEndReportInput) {
     
     const report = await tx.dayEndReport.create({
       data: {
-        reportDate: new Date(input.reportDate),
+        reportDate: parseLocalDate(input.reportDate),
         beltMarkupRupees: new Prisma.Decimal(roundPrice(beltMarkup)),
         totalSalesAmount: new Prisma.Decimal(roundPrice(summary.totalRevenue)),
         totalUnitsSold: summary.totalUnits,
@@ -253,10 +256,11 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
     const summary = summarize(prepared.lines);
     
     // Calculate net profit by subtracting purchase-level tax/misc proportionally
+    const reportDateValue = parseLocalDate(input.reportDate);
     const purchasesUpToDate = await tx.purchase.findMany({
       where: {
         purchaseDate: {
-          lte: new Date(input.reportDate),
+          lte: reportDateValue,
         },
       },
       include: {
@@ -286,7 +290,7 @@ export async function updateDayEndReport(reportId: number, input: DayEndReportIn
     const report = await tx.dayEndReport.update({
       where: { id: reportId },
       data: {
-        reportDate: new Date(input.reportDate),
+        reportDate: parseLocalDate(input.reportDate),
         beltMarkupRupees: new Prisma.Decimal(roundPrice(beltMarkup)),
         totalSalesAmount: new Prisma.Decimal(roundPrice(summary.totalRevenue)),
         totalUnitsSold: summary.totalUnits,

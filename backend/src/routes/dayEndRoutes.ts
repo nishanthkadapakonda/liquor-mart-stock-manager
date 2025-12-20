@@ -11,6 +11,7 @@ import {
 import { SALES_CHANNELS } from "../types/domain";
 import { requireAdmin } from "../middleware/requireRole";
 import type { DayEndReportInput } from "../services/dayEndReportService";
+import { parseLocalDate } from "../utils/dateUtils";
 
 const router = Router();
 
@@ -55,8 +56,8 @@ router.get(
         ...(startDate && endDate
           ? {
               reportDate: {
-                gte: new Date(String(startDate)),
-                lte: new Date(String(endDate)),
+                gte: parseLocalDate(String(startDate)),
+                lte: parseLocalDate(String(endDate)),
               },
             }
           : {}),

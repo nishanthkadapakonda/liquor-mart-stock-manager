@@ -5,6 +5,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { createPurchase, deletePurchase, updatePurchase } from "../services/purchaseService";
 import type { PurchaseLineInput } from "../services/purchaseService";
 import { requireAdmin } from "../middleware/requireRole";
+import { parseLocalDate } from "../utils/dateUtils";
 
 const router = Router();
 
@@ -91,8 +92,8 @@ router.get(
         ...(startDate && endDate
           ? {
               purchaseDate: {
-                gte: new Date(String(startDate)),
-                lte: new Date(String(endDate)),
+                gte: parseLocalDate(String(startDate)),
+                lte: parseLocalDate(String(endDate)),
               },
             }
           : {}),

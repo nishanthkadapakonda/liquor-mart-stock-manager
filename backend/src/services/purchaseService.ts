@@ -40,12 +40,14 @@ export interface PurchaseInput {
   allowItemCreation?: boolean;
 }
 
+import { parseLocalDate } from "../utils/dateUtils";
+
 export async function createPurchase(input: PurchaseInput) {
   if (input.lineItems.length === 0) {
     throw new Error("At least one line item is required");
   }
 
-  const purchaseDateValue = new Date(input.purchaseDate);
+  const purchaseDateValue = parseLocalDate(input.purchaseDate);
 
   return prisma.$transaction(async (tx) => {
     const purchase = await tx.purchase.create({
@@ -141,7 +143,7 @@ export async function updatePurchase(purchaseId: number, input: PurchaseInput) {
     throw new Error("At least one line item is required");
   }
 
-  const purchaseDateValue = new Date(input.purchaseDate);
+  const purchaseDateValue = parseLocalDate(input.purchaseDate);
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.purchase.findUnique({
