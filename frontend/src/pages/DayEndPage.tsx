@@ -15,6 +15,10 @@ import type {
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { useAuth } from "../providers/AuthProvider";
 import { parseDayEndUpload, type ParsedLine } from "../utils/fileParsers";
+import { LoadingButton } from "../components/common/LoadingButton";
+import { PageLoader } from "../components/common/PageLoader";
+import { Spinner } from "../components/common/Spinner";
+import { parseDate, formatDateInput } from "../utils/dateUtils";
 
 interface ItemOption {
   value: number;
@@ -297,7 +301,7 @@ export function DayEndPage() {
       const response = await api.get<{ report: DayEndReport }>(`/day-end-reports/${reportId}`);
       const report = response.data.report;
       setEditingReport(report);
-      setReportDate(dayjs(report.reportDate).format("YYYY-MM-DD"));
+      setReportDate(formatDateInput(report.reportDate));
       setBeltMarkup(
         report.beltMarkupRupees !== null && report.beltMarkupRupees !== undefined
           ? String(report.beltMarkupRupees)
@@ -416,6 +420,10 @@ export function DayEndPage() {
     setLines((prev) => [...prev, createEmptyLine(defaultBeltMarkup)]);
   };
 
+  if (itemsQuery.isLoading || reportsQuery.isLoading || settingsQuery.isLoading) {
+    return <PageLoader message="Loading day-end data..." />;
+  }
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -441,7 +449,7 @@ export function DayEndPage() {
           {isEditingExisting && editingReport && (
             <div className="mb-4 space-y-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p>Editing report for {dayjs(editingReport.reportDate).format("DD MMM YYYY")}</p>
+                <p>Editing report for {parseDate(editingReport.reportDate).format("DD MMM YYYY")}</p>
                 <button type="button" onClick={resetForm} className="text-xs font-semibold text-brand-700 hover:underline">
                   Cancel edit
                 </button>
@@ -629,22 +637,22 @@ export function DayEndPage() {
             </div>
 
             <div className="mt-6 flex flex-col gap-3 text-sm sm:flex-row">
-              <button
+              <LoadingButton
                 type="button"
                 onClick={handlePreview}
-                disabled={isPreviewLoading}
-                className="rounded-xl border border-brand-200 px-4 py-2 font-semibold text-brand-600 transition hover:border-brand-300 disabled:cursor-not-allowed disabled:opacity-70"
+                loading={isPreviewLoading}
+                className="rounded-xl border border-brand-200 px-4 py-2 font-semibold text-brand-600 transition hover:border-brand-300 disabled:opacity-70"
               >
-                {isPreviewLoading ? "Generating preview…" : "Preview totals"}
-              </button>
-              <button
+                Preview totals
+              </LoadingButton>
+              <LoadingButton
                 type="button"
                 onClick={handleSubmit}
-                disabled={isSaving}
-                className="rounded-xl bg-brand-600 px-4 py-2 font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+                loading={isSaving}
+                className="rounded-xl bg-brand-600 px-4 py-2 font-semibold text-white transition hover:bg-brand-500 disabled:bg-brand-300"
               >
-                {isSaving ? "Saving report…" : isEditingExisting ? "Update report" : "Save day-end report"}
-              </button>
+                {isEditingExisting ? "Update report" : "Save day-end report"}
+              </LoadingButton>
             </div>
           </fieldset>
         </div>
@@ -856,7 +864,7 @@ export function DayEndPage() {
               {(reportsQuery.data ?? []).map((report) => (
                 <Fragment key={report.id}>
                   <tr>
-                    <td className="py-3 text-slate-900">{dayjs(report.reportDate).format("DD MMM YYYY")}</td>
+                    <td className="py-3 text-slate-900">{parseDate(report.reportDate).format("DD MMM YYYY")}</td>
                     <td className="py-3 text-slate-600">{formatNumber(report.totalUnitsSold ?? 0)}</td>
                     <td className="py-3 text-slate-900">{formatCurrency(report.totalSalesAmount ?? 0)}</td>
                     <td className="py-3">
@@ -894,8 +902,9 @@ export function DayEndPage() {
                               type="button"
                               onClick={() => handleDeleteReport(report.id)}
                               disabled={deleteInFlight === report.id}
-                              className="font-semibold text-red-500 hover:underline disabled:text-red-300"
+                              className="inline-flex items-center gap-1.5 font-semibold text-red-500 hover:underline disabled:text-red-300"
                             >
+                              {deleteInFlight === report.id && <Spinner size="sm" />}
                               {deleteInFlight === report.id ? "Deleting…" : "Delete"}
                             </button>
                           </>

@@ -7,6 +7,10 @@ import type { Purchase, PurchaseLineInput } from "../api/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { parsePurchaseUpload, type ParsedLine } from "../utils/fileParsers";
 import { useAuth } from "../providers/AuthProvider";
+import { LoadingButton } from "../components/common/LoadingButton";
+import { PageLoader } from "../components/common/PageLoader";
+import { Spinner } from "../components/common/Spinner";
+import { parseDate, formatDateInput } from "../utils/dateUtils";
 
 // Helper function to round to 4 decimal places without floating-point errors
 function roundTo4Decimals(value: number): number {
@@ -119,6 +123,9 @@ export function PurchasesPage() {
   const [expandedPurchaseId, setExpandedPurchaseId] = useState<number | null>(null);
   const [selectedPurchaseIds, setSelectedPurchaseIds] = useState<Set<number>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [deletingPurchaseId, setDeletingPurchaseId] = useState<number | null>(null);
 
   const purchasesQuery = useQuery({
     queryKey: ["purchases", activeFilter.kind, activeFilter.startDate ?? "NA", activeFilter.endDate ?? "NA"],
@@ -385,6 +392,7 @@ export function PurchasesPage() {
       }
     }
 
+    setIsSubmitting(true);
     try {
       if (editingPurchase) {
         await api.put(`/purchases/${editingPurchase.id}`, {
@@ -415,6 +423,8 @@ export function PurchasesPage() {
       queryClient.invalidateQueries({ queryKey: ["items"] });
     } catch (error) {
       toast.error(getErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -446,6 +456,7 @@ export function PurchasesPage() {
 
   const handleImportSubmit = async () => {
     if (!importPreview || importPreview.length === 0) return;
+    setIsImporting(true);
     try {
       await api.post("/purchases/import", {
         purchaseDate: importDate,
@@ -466,6 +477,8 @@ export function PurchasesPage() {
       queryClient.invalidateQueries({ queryKey: ["items"] });
     } catch (error) {
       toast.error(getErrorMessage(error));
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -475,7 +488,7 @@ export function PurchasesPage() {
       const purchase = response.data.purchase;
       
       setEditingPurchase(purchase);
-      setPurchaseDate(dayjs(purchase.purchaseDate).format("YYYY-MM-DD"));
+      setPurchaseDate(formatDateInput(purchase.purchaseDate));
       setSupplierName(purchase.supplierName ?? "");
       setNotes(purchase.notes ?? "");
       
@@ -560,6 +573,7 @@ export function PurchasesPage() {
     if (!window.confirm("⚠️ WARNING: Permanently delete this purchase?\n\nThis action cannot be undone. Stock levels will be adjusted, and this purchase record will be permanently removed from the database.")) {
       return;
     }
+    setDeletingPurchaseId(purchaseId);
     try {
       await api.delete(`/purchases/${purchaseId}`);
       toast.success("Purchase deleted - items updated");
@@ -577,6 +591,8 @@ export function PurchasesPage() {
       queryClient.invalidateQueries({ queryKey: ["items"] });
     } catch (error) {
       toast.error(getErrorMessage(error));
+    } finally {
+      setDeletingPurchaseId(null);
     }
   };
 
@@ -613,6 +629,10 @@ export function PurchasesPage() {
       setSelectedPurchaseIds(new Set(purchases.map((p) => p.id)));
     }
   };
+
+  if (purchasesQuery.isLoading) {
+    return <PageLoader message="Loading purchases..." />;
+  }
 
   const toggleSelectPurchase = (id: number) => {
     setSelectedPurchaseIds((prev) => {
@@ -654,7 +674,7 @@ export function PurchasesPage() {
             </div>
             {editingPurchase && (
               <p className="mt-1 text-xs text-slate-500">
-                Updating record from {dayjs(editingPurchase.purchaseDate).format("DD MMM YYYY")}
+                Updating record from {parseDate(editingPurchase.purchaseDate).format("DD MMM YYYY")}
               </p>
             )}
             {!canEdit && (
@@ -941,12 +961,13 @@ export function PurchasesPage() {
               </button>
               <span>Total quantity: {formatNumber(manualTotal)}</span>
             </div>
-            <button
+            <LoadingButton
               type="submit"
-              className="mt-4 mb-5 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+              loading={isSubmitting}
+              className="mt-4 mb-5 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:bg-brand-300"
             >
               {editingPurchase ? "Update purchase" : "Save purchase"}
-            </button>
+            </LoadingButton>
           </fieldset>
         </form>
 
@@ -1155,14 +1176,15 @@ export function PurchasesPage() {
                     </tbody>
                   </table>
                 </div>
-                <button
+                <LoadingButton
                   type="button"
                   onClick={handleImportSubmit}
+                  loading={isImporting}
                   disabled={importSummary.linesWithIssues > 0}
-                  className="w-full rounded-xl bg-slate-900 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="w-full rounded-xl bg-slate-900 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:bg-slate-300"
                 >
                   Confirm import
-                </button>
+                </LoadingButton>
               </div>
             )}
           </fieldset>
@@ -1238,14 +1260,14 @@ export function PurchasesPage() {
           <p className="text-base font-semibold text-slate-900">Recent purchases</p>
           <span className="flex-1 text-xs text-slate-500">Showing {activeFilterLabel}</span>
           {canEdit && selectedPurchaseIds.size > 0 && (
-            <button
+            <LoadingButton
               type="button"
               onClick={handleBulkDeletePurchases}
-              disabled={isBulkDeleting}
-              className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+              loading={isBulkDeleting}
+              className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600"
             >
-              {isBulkDeleting ? "Deleting..." : `Delete (${selectedPurchaseIds.size})`}
-            </button>
+              Delete ({selectedPurchaseIds.size})
+            </LoadingButton>
           )}
         </div>
         <div className="mt-4 overflow-x-auto">
@@ -1298,7 +1320,7 @@ export function PurchasesPage() {
                         </td>
                       )}
                       <td className="py-2 text-slate-900">
-                        {dayjs(purchase.purchaseDate).format("DD MMM YYYY")}
+                        {parseDate(purchase.purchaseDate).format("DD MMM YYYY")}
                       </td>
                       <td className="py-2 text-slate-600">{purchase.supplierName ?? "—"}</td>
                       <td className="py-2 text-slate-600">{purchase.lineItems.length}</td>
@@ -1333,8 +1355,10 @@ export function PurchasesPage() {
                               <button
                                 type="button"
                                 onClick={() => handleDeletePurchase(purchase.id)}
-                                className="font-semibold text-red-500 hover:underline"
+                                disabled={deletingPurchaseId === purchase.id}
+                                className="inline-flex items-center gap-1.5 font-semibold text-red-500 hover:underline disabled:text-red-300"
                               >
+                                {deletingPurchaseId === purchase.id && <Spinner size="sm" />}
                                 Delete
                               </button>
                             </>

@@ -6,6 +6,10 @@ import { api, getErrorMessage } from "../api/client";
 import type { Item } from "../api/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { useAuth } from "../providers/AuthProvider";
+import { LoadingButton } from "../components/common/LoadingButton";
+import { PageLoader } from "../components/common/PageLoader";
+import { Spinner } from "../components/common/Spinner";
+import { parseDate } from "../utils/dateUtils";
 
 interface PriceHistoryEntry {
   purchaseId: number;
@@ -74,6 +78,8 @@ export function ItemsPage() {
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingItemId, setDeletingItemId] = useState<number | null>(null);
   const [priceHistoryItem, setPriceHistoryItem] = useState<Item | null>(null);
   const [priceHistoryData, setPriceHistoryData] = useState<PriceHistoryResponse | null>(null);
   const [loadingPriceHistory, setLoadingPriceHistory] = useState(false);
@@ -115,6 +121,10 @@ export function ItemsPage() {
     [filteredItems],
   );
 
+  if (itemsQuery.isLoading || lowStockQuery.isLoading) {
+    return <PageLoader message="Loading items..." />;
+  }
+
   const resetForm = () => {
     setForm({ ...emptyItemForm });
     setEditingItem(null);
@@ -122,6 +132,7 @@ export function ItemsPage() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    setIsSubmitting(true);
     try {
       const payload = {
         sku: form.sku || undefined, // Auto-generated if empty
@@ -183,6 +194,8 @@ export function ItemsPage() {
       }
     } catch (error) {
       toast.error(getErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -218,6 +231,7 @@ export function ItemsPage() {
     if (!window.confirm(`⚠️ WARNING: Delete "${item.name}" permanently?\n\nThis action cannot be undone. All purchase history, sales records, and stock adjustments for this item will also be permanently deleted.`)) {
       return;
     }
+    setDeletingItemId(item.id);
     try {
       await api.delete(`/items/${item.id}`);
       toast.success("Item deleted");
@@ -233,6 +247,8 @@ export function ItemsPage() {
       lowStockQuery.refetch();
     } catch (error) {
       toast.error(getErrorMessage(error));
+    } finally {
+      setDeletingItemId(null);
     }
   };
 
@@ -337,14 +353,14 @@ export function ItemsPage() {
             Showing {visibleItems.length} active item{visibleItems.length === 1 ? "" : "s"}
           </p>
           {canEdit && selectedIds.size > 0 && (
-            <button
+            <LoadingButton
               type="button"
               onClick={handleBulkDelete}
-              disabled={isDeleting}
-              className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+              loading={isDeleting}
+              className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600"
             >
-              {isDeleting ? "Deleting..." : `Delete (${selectedIds.size})`}
-            </button>
+              Delete ({selectedIds.size})
+            </LoadingButton>
           )}
           <button
             type="button"
@@ -449,8 +465,10 @@ export function ItemsPage() {
                         <button
                           type="button"
                           onClick={() => handleDelete(item)}
-                          className="font-semibold text-red-500 hover:underline"
+                          disabled={deletingItemId === item.id}
+                          className="inline-flex items-center gap-1.5 font-semibold text-red-500 hover:underline disabled:text-red-300"
                         >
+                          {deletingItemId === item.id && <Spinner size="sm" />}
                           Delete
                         </button>
                       </>
@@ -522,12 +540,13 @@ export function ItemsPage() {
               </div>
             ))}
             <div className="flex items-end md:col-span-2">
-              <button
+              <LoadingButton
                 type="submit"
-                className="w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+                loading={isSubmitting}
+                className="w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:bg-brand-300"
               >
                 Save item
-              </button>
+              </LoadingButton>
             </div>
           </fieldset>
           <p className="mt-3 text-xs text-slate-400">
@@ -612,13 +631,14 @@ export function ItemsPage() {
                 >
                   Cancel
                 </button>
-                <button
+                <LoadingButton
                   type="submit"
+                  loading={isSubmitting}
                   disabled={!canEdit}
-                  className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+                  className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:bg-brand-300"
                 >
                   Update item
-                </button>
+                </LoadingButton>
               </div>
             </form>
           </div>
@@ -755,7 +775,7 @@ export function ItemsPage() {
                             {priceHistoryData.history.map((entry, index) => (
                               <tr key={`${entry.purchaseId}-${index}`} className="hover:bg-slate-50">
                                 <td className="px-4 py-3 text-slate-600">
-                                  {dayjs(entry.purchaseDate).format("DD MMM YYYY")}
+                                  {parseDate(entry.purchaseDate).format("DD MMM YYYY")}
                                 </td>
                                 <td className="px-4 py-3 text-slate-600">
                                   {entry.supplierName || "—"}

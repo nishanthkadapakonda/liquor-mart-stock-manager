@@ -5,6 +5,9 @@ import toast from "react-hot-toast";
 import { api, getErrorMessage } from "../api/client";
 import type { AdminUser, UserRole } from "../api/types";
 import { useAuth } from "../providers/AuthProvider";
+import { LoadingButton } from "../components/common/LoadingButton";
+import { PageLoader } from "../components/common/PageLoader";
+import { Spinner } from "../components/common/Spinner";
 
 interface UserListItem extends Pick<AdminUser, "id" | "email" | "name" | "role"> {
   createdAt: string;
@@ -75,6 +78,10 @@ export function UsersPage() {
       setDeletingUserId(null);
     }
   };
+
+  if (usersQuery.isLoading) {
+    return <PageLoader message="Loading users..." />;
+  }
 
   return (
     <div className="space-y-8">
@@ -151,13 +158,13 @@ export function UsersPage() {
               </div>
             </div>
           </div>
-          <button
+          <LoadingButton
             type="submit"
-            disabled={isSubmitting}
-            className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+            loading={isSubmitting}
+            className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:bg-brand-300"
           >
-            {isSubmitting ? "Creating…" : "Create user"}
-          </button>
+            Create user
+          </LoadingButton>
         </form>
 
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -206,17 +213,18 @@ export function UsersPage() {
                         type="button"
                         disabled={deletingUserId === user.id}
                         onClick={() => handleDeleteUser(user)}
-                        className="text-xs font-semibold text-red-600 disabled:text-red-300"
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 disabled:text-red-300"
                       >
+                        {deletingUserId === user.id && <Spinner size="sm" />}
                         {deletingUserId === user.id ? "Removing…" : "Remove"}
                       </button>
                     </td>
                   </tr>
                 ))}
-                {(sortedUsers.length === 0 || usersQuery.isLoading) && (
+                {sortedUsers.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                      {usersQuery.isLoading ? "Loading users…" : "No users added yet."}
+                      No users added yet.
                     </td>
                   </tr>
                 )}

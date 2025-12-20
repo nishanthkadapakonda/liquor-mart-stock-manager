@@ -7,6 +7,8 @@ import { api } from "../api/client";
 import type { DashboardSummary, TopItemsAnalytics } from "../api/types";
 import { StatCard } from "../components/common/StatCard";
 import { formatCurrency, formatNumber } from "../utils/formatters";
+import { PageLoader } from "../components/common/PageLoader";
+import { parseDate } from "../utils/dateUtils";
 
 const ranges = [
   { label: "7 days", value: 7 },
@@ -110,14 +112,8 @@ export function DashboardPage() {
   // Calculate final profit based on toggle
   const totalProfit = includeTaxMisc ? grossProfit - totalTaxMisc : grossProfit;
 
-  if (isLoading || !data) {
-    return (
-      <div className="grid gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, idx) => (
-          <div key={idx} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
-        ))}
-      </div>
-    );
+  if (isLoading || !data || purchasesQuery.isLoading) {
+    return <PageLoader message="Loading dashboard data..." />;
   }
 
   const latestReportLines = data.latestReport?.lines ?? [];
@@ -204,7 +200,7 @@ export function DashboardPage() {
               <p className="text-sm font-medium text-slate-500">Latest Day-End Report</p>
               <p className="text-xl font-semibold text-slate-900">
                 {data.latestReport
-                  ? dayjs(data.latestReport.reportDate).format("DD MMM YYYY")
+                  ? parseDate(data.latestReport.reportDate).format("DD MMM YYYY")
                   : "No reports yet"}
               </p>
             </div>
@@ -410,7 +406,7 @@ export function DashboardPage() {
                 return (
                   <tr key={report.id}>
                     <td className="py-2 text-slate-900">
-                      {dayjs(report.reportDate).format("DD MMM")}
+                      {parseDate(report.reportDate).format("DD MMM")}
                     </td>
                     <td className="py-2 text-slate-600">
                       {formatNumber(report.totalUnitsSold ?? 0)}
@@ -475,7 +471,7 @@ export function DashboardPage() {
                   tick={{ fontSize: 11 }}
                 />
                 <Tooltip
-                  formatter={(value: number, name: string, props: any) => [
+                  formatter={(value: number, _name: string, props: any) => [
                     `${formatNumber(value)} units`,
                     props.payload.fullName,
                   ]}

@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../providers/AuthProvider";
 import { getErrorMessage } from "../api/client";
+import { LoadingButton } from "../components/common/LoadingButton";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -96,13 +97,13 @@ export function LoginPage() {
               <span className="text-slate-400">Seeded admin only</span>
             </div>
             {error && <p className="text-sm text-red-500">{error}</p>}
-            <button
+            <LoadingButton
               type="submit"
-              disabled={submitting}
-              className="w-full rounded-xl bg-brand-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-70"
+              loading={submitting}
+              className="w-full rounded-xl bg-brand-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-brand-500"
             >
-              {submitting ? "Signing in..." : "Sign in"}
-            </button>
+              Sign in
+            </LoadingButton>
           </form>
         </div>
       </div>

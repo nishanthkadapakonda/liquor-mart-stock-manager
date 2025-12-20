@@ -33,6 +33,8 @@ import type {
   VelocityAnalytics,
 } from "../api/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
+import { LoadingButton } from "../components/common/LoadingButton";
+import { PageLoader } from "../components/common/PageLoader";
 
 const quickRanges = [
   { value: "LAST_30" as const, label: "Last 30 days", description: "Rolling month", days: 30 },
@@ -558,6 +560,11 @@ export function ReportsPage() {
     );
   });
 
+  // Show loader if any critical query is loading
+  if (trendQuery.isLoading || dailyPerformanceQuery.isLoading || topItemsQuery.isLoading) {
+    return <PageLoader message="Loading reports..." />;
+  }
+
   return (
     <div className="space-y-8" ref={reportRef}>
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
@@ -569,14 +576,14 @@ export function ReportsPage() {
           </p>
           <p className="mt-2 text-xs font-medium text-slate-500">{rangeLabel}</p>
         </div>
-        <button
+        <LoadingButton
           type="button"
           onClick={handleExportPdf}
-          disabled={isExporting}
-          className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-70"
+          loading={isExporting}
+          className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 disabled:opacity-70"
         >
-          {isExporting ? "Preparing PDF…" : "Download full PDF"}
-        </button>
+          Download full PDF
+        </LoadingButton>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">

@@ -4,6 +4,8 @@ import toast from "react-hot-toast";
 import { api, getErrorMessage } from "../api/client";
 import type { AppSettings, SettingsPayload } from "../api/types";
 import { useAuth } from "../providers/AuthProvider";
+import { LoadingButton } from "../components/common/LoadingButton";
+import { PageLoader } from "../components/common/PageLoader";
 
 const recommendedSettings = {
   defaultBeltMarkupRupees: 20,
@@ -65,6 +67,10 @@ export function SettingsPage() {
     setBeltMarkup(String(recommendedSettings.defaultBeltMarkupRupees));
     setLowStockThreshold(String(recommendedSettings.defaultLowStockThreshold));
   };
+
+  if (settingsQuery.isLoading) {
+    return <PageLoader message="Loading settings..." />;
+  }
 
   return (
     <div className="space-y-8">
@@ -134,13 +140,14 @@ export function SettingsPage() {
             </p>
           </div>
         </fieldset>
-        <button
+        <LoadingButton
           type="submit"
-          disabled={isSaving || !canEdit}
-          className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:bg-brand-300"
+          loading={isSaving}
+          disabled={!canEdit}
+          className="mt-4 w-full rounded-xl bg-brand-600 py-2 text-sm font-semibold text-white transition hover:bg-brand-500 disabled:bg-brand-300"
         >
-          {isSaving ? "Saving…" : "Save defaults"}
-        </button>
+          Save defaults
+        </LoadingButton>
       </form>
 
       <div className="grid gap-4 lg:grid-cols-2">
