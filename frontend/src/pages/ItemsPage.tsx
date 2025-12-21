@@ -436,17 +436,78 @@ export function ItemsPage() {
         <head>
           <title>Items Catalog - ${dayjs().format("DD MMM YYYY")}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background-color: #f2f2f2; font-weight: bold; }
-            tr:nth-child(even) { background-color: #f9f9f9; }
-            .header { margin-bottom: 20px; }
-            .header h1 { margin: 0; }
-            .header p { margin: 5px 0; color: #666; }
+            @media print {
+              @page {
+                margin: 1cm;
+                size: auto;
+              }
+            }
+            body { 
+              font-family: Arial, sans-serif; 
+              padding: 20px; 
+              position: relative;
+            }
+            .print-header {
+              display: none;
+            }
+            @media print {
+              .print-header {
+                display: block;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                background: white;
+                padding: 10px 20px;
+                border-bottom: 2px solid #333;
+                font-size: 14px;
+                font-weight: bold;
+                text-align: left;
+                z-index: 1000;
+                page-break-after: avoid;
+              }
+              body {
+                padding-top: 50px;
+              }
+              @page {
+                margin-top: 2cm;
+              }
+            }
+            table { 
+              width: 100%; 
+              border-collapse: collapse; 
+              margin-top: 20px; 
+              position: relative;
+              z-index: 1;
+            }
+            th, td { 
+              border: 1px solid #ddd; 
+              padding: 8px; 
+              text-align: left; 
+            }
+            th { 
+              background-color: #f2f2f2; 
+              font-weight: bold; 
+            }
+            tr:nth-child(even) { 
+              background-color: #f9f9f9; 
+            }
+            .header { 
+              margin-bottom: 20px; 
+              position: relative;
+              z-index: 1;
+            }
+            .header h1 { 
+              margin: 0; 
+            }
+            .header p { 
+              margin: 5px 0; 
+              color: #666; 
+            }
           </style>
         </head>
         <body>
+          <div class="print-header">Retailer's Name : Sri Mahalakshmi Wines</div>
           <div class="header">
             <h1>Items Catalog</h1>
             <p>Generated: ${dayjs().format("DD MMM YYYY HH:mm")}</p>
