@@ -1,7 +1,8 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import dayjs from "dayjs";
+import { utils as XLSXUtils, writeFile as writeXlsxFile } from "xlsx";
 import { api, getErrorMessage } from "../api/client";
 import type { Item } from "../api/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
@@ -83,6 +84,8 @@ export function ItemsPage() {
   const [priceHistoryItem, setPriceHistoryItem] = useState<Item | null>(null);
   const [priceHistoryData, setPriceHistoryData] = useState<PriceHistoryResponse | null>(null);
   const [loadingPriceHistory, setLoadingPriceHistory] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const tableRef = useRef<HTMLTableElement>(null);
   const isEditing = Boolean(editingItem);
 
   const itemsQuery = useQuery({
@@ -329,6 +332,138 @@ export function ItemsPage() {
     setPriceHistoryData(null);
   };
 
+  const handleExportExcel = () => {
+    if (!visibleItems.length) {
+      toast.error("No items to export");
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const headers = [
+        "SKU",
+        "Brand Number",
+        "Item Name",
+        "Brand",
+        "Product Type",
+        "Size Code",
+        "Pack Type",
+        "Pack Size Label",
+        "Units Per Pack",
+        "Category",
+        "Volume (ml)",
+        "MRP",
+        "Purchase Cost Price",
+        "Weighted Avg Cost Price",
+        "Current Stock Units",
+        "Total Purchased Quantity",
+        "Reorder Level",
+        "Is Active",
+      ];
+      const rows = visibleItems.map((item) => [
+        item.sku,
+        item.brandNumber ?? "",
+        item.name,
+        item.brand ?? "",
+        item.productType ?? "",
+        item.sizeCode ?? "",
+        item.packType ?? "",
+        item.packSizeLabel ?? "",
+        item.unitsPerPack ?? "",
+        item.category ?? "",
+        item.volumeMl ?? "",
+        Number(item.mrpPrice ?? 0),
+        item.purchaseCostPrice ? Number(item.purchaseCostPrice) : "",
+        item.weightedAvgCostPrice ? Number(item.weightedAvgCostPrice) : "",
+        item.currentStockUnits,
+        item.totalPurchasedQuantity ?? 0,
+        item.reorderLevel ?? "",
+        item.isActive ? "Yes" : "No",
+      ]);
+      // Security: Sanitize data before creating Excel file
+      const sanitizedRows = rows.map((row) =>
+        row.map((cell) => {
+          const value = cell === null || cell === undefined ? "" : String(cell);
+          return value.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+        })
+      );
+      const worksheet = XLSXUtils.aoa_to_sheet([headers, ...sanitizedRows]);
+      const workbook = XLSXUtils.book_new();
+      XLSXUtils.book_append_sheet(workbook, worksheet, "Items");
+      writeXlsxFile(workbook, `items-${dayjs().format("YYYYMMDD-HHmm")}.xlsx`);
+      toast.success("Items exported to Excel");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handlePrint = () => {
+    if (!tableRef.current) {
+      toast.error("Table not found");
+      return;
+    }
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Please allow popups to print");
+      return;
+    }
+    
+    // Clone the table and remove the Actions column
+    const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
+    const actionsColumnIndex = canEdit ? 7 : 6; // Actions is the last column
+    
+    // Remove Actions header
+    const headerRow = tableClone.querySelector("thead tr");
+    if (headerRow) {
+      const actionsHeader = headerRow.children[actionsColumnIndex];
+      if (actionsHeader) {
+        actionsHeader.remove();
+      }
+    }
+    
+    // Remove Actions cells from all rows
+    const rows = tableClone.querySelectorAll("tbody tr");
+    rows.forEach((row) => {
+      const actionsCell = row.children[actionsColumnIndex];
+      if (actionsCell) {
+        actionsCell.remove();
+      }
+    });
+    
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Items Catalog - ${dayjs().format("DD MMM YYYY")}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; font-weight: bold; }
+            tr:nth-child(even) { background-color: #f9f9f9; }
+            .header { margin-bottom: 20px; }
+            .header h1 { margin: 0; }
+            .header p { margin: 5px 0; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Items Catalog</h1>
+            <p>Generated: ${dayjs().format("DD MMM YYYY HH:mm")}</p>
+            <p>Total Items: ${visibleItems.length}</p>
+          </div>
+          ${tableClone.outerHTML}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 250);
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
@@ -352,26 +487,44 @@ export function ItemsPage() {
           <p className="flex-1 text-xs text-slate-500">
             Showing {visibleItems.length} active item{visibleItems.length === 1 ? "" : "s"}
           </p>
-          {canEdit && selectedIds.size > 0 && (
+          <div className="flex items-center gap-2">
             <LoadingButton
               type="button"
-              onClick={handleBulkDelete}
-              loading={isDeleting}
-              className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600"
+              onClick={handleExportExcel}
+              loading={isExporting}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-300 disabled:opacity-50"
+              loadingText="Exporting..."
             >
-              Delete ({selectedIds.size})
+              Export Excel
             </LoadingButton>
-          )}
-          <button
-            type="button"
-            onClick={() => itemsQuery.refetch()}
-            className="text-xs font-semibold text-brand-600"
-          >
-            Refresh
-          </button>
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-300"
+            >
+              Print
+            </button>
+            {canEdit && selectedIds.size > 0 && (
+              <LoadingButton
+                type="button"
+                onClick={handleBulkDelete}
+                loading={isDeleting}
+                className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600"
+              >
+                Delete ({selectedIds.size})
+              </LoadingButton>
+            )}
+            <button
+              type="button"
+              onClick={() => itemsQuery.refetch()}
+              className="text-xs font-semibold text-brand-600"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
         <div className="mt-4 overflow-auto" style={{ height: 'calc(100% - 40px)' }}>
-          <table className="min-w-full text-sm">
+          <table ref={tableRef} className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase text-slate-400">
               <tr>
                 {canEdit && (
