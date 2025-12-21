@@ -42,6 +42,7 @@ export interface PurchaseLineItem {
   item: Item;
   quantityUnits: number;
   casesQuantity?: number | null;
+  looseUnits?: number | null;              // Individual units not in complete cases
   unitsPerCase?: number | null;
   packType?: string | null;
   packSizeLabel?: string | null;
@@ -214,6 +215,7 @@ export interface PurchaseLineInput {
   packSizeLabel?: string;
   unitsPerPack?: number;
   casesQuantity?: number;
+  looseUnits?: number;                     // Individual units not in complete cases
   category?: string;
   volumeMl?: number;
   mrpPrice: number;

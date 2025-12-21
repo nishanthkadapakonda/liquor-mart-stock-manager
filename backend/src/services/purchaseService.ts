@@ -19,6 +19,7 @@ export interface PurchaseLineInput {
   packSizeLabel?: string;
   unitsPerPack?: number;
   casesQuantity?: number;
+  looseUnits?: number;  // Frontend-only: helps calculate quantityUnits, not stored in DB
   category?: string;
   volumeMl?: number;
   mrpPrice: number;
@@ -474,22 +475,40 @@ function applyItemMetadata(target: Prisma.ItemUpdateInput, line: PurchaseLineInp
 }
 
 function computeCaseStats(line: PurchaseLineInput) {
+  // If both casesQuantity and looseUnits are provided, calculate total quantityUnits
+  let calculatedQuantityUnits = line.quantityUnits;
+  if (line.casesQuantity !== undefined && line.looseUnits !== undefined && line.unitsPerPack !== undefined) {
+    calculatedQuantityUnits = (line.casesQuantity * line.unitsPerPack) + line.looseUnits;
+  }
+
+  // Infer unitsPerCase if not provided
   const inferredUnitsPerCase =
     line.unitsPerPack ??
     (line.casesQuantity && line.casesQuantity > 0
-      ? Math.round(line.quantityUnits / line.casesQuantity)
+      ? Math.floor(calculatedQuantityUnits / line.casesQuantity)
       : undefined);
+  
   const unitsPerCase = inferredUnitsPerCase ?? undefined;
+  
+  // Calculate casesQuantity if not provided
   const casesQuantity =
     line.casesQuantity ??
-    (unitsPerCase ? Math.round(line.quantityUnits / unitsPerCase) : undefined);
+    (unitsPerCase && unitsPerCase > 0
+      ? Math.floor((calculatedQuantityUnits - (line.looseUnits ?? 0)) / unitsPerCase)
+      : undefined);
+  
   const caseCostPrice =
     line.caseCostPrice ?? (unitsPerCase ? line.unitCostPrice * unitsPerCase : undefined);
+  
+  // Calculate line total: (cases * caseCostPrice) + (looseUnits * unitCostPrice) if both provided
   const lineTotalPrice =
     line.lineTotalPrice ??
-    (caseCostPrice !== undefined && casesQuantity !== undefined
+    (caseCostPrice !== undefined && casesQuantity !== undefined && line.looseUnits !== undefined
+      ? (caseCostPrice * casesQuantity) + (line.unitCostPrice * line.looseUnits)
+      : caseCostPrice !== undefined && casesQuantity !== undefined
       ? caseCostPrice * casesQuantity
-      : undefined);
+      : line.unitCostPrice * calculatedQuantityUnits);
+  
   return { unitsPerCase, casesQuantity, caseCostPrice, lineTotalPrice };
 }
 

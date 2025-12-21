@@ -29,6 +29,7 @@ interface ManualLine {
   packSizeLabel: string;
   unitsPerPack: string;
   casesQuantity: string;
+  looseUnits: string;                      // Individual units not in complete cases
   quantityUnits: string;
   mrpPrice: string;
   unitCostPrice: string;
@@ -49,6 +50,7 @@ function emptyLine(): ManualLine {
     packSizeLabel: "",
     unitsPerPack: "",
     casesQuantity: "",
+    looseUnits: "",
     quantityUnits: "",
     mrpPrice: "",
     unitCostPrice: "",
@@ -238,6 +240,7 @@ export function PurchasesPage() {
         const numValue = value !== "" ? Number(value) : 0;
         const quantityUnits = updated.quantityUnits !== "" ? Number(updated.quantityUnits) : 0;
         const casesQuantity = updated.casesQuantity !== "" ? Number(updated.casesQuantity) : 0;
+        const looseUnits = updated.looseUnits !== "" ? Number(updated.looseUnits) : 0;
         const unitsPerPack = updated.unitsPerPack !== "" ? Number(updated.unitsPerPack) : 0;
         const unitCostPrice = updated.unitCostPrice !== "" ? Number(updated.unitCostPrice) : 0;
         const caseCostPrice = updated.caseCostPrice !== "" ? Number(updated.caseCostPrice) : 0;
@@ -292,20 +295,58 @@ export function PurchasesPage() {
         // When casesQuantity changes: recalculate lineTotalPrice and quantityUnits
         else if (key === "casesQuantity") {
           if (numValue > 0 && caseCostPrice > 0) {
-            updated.lineTotalPrice = roundTo4Decimals(caseCostPrice * numValue).toFixed(4);
+            // Calculate total: (cases * caseCostPrice) + (looseUnits * unitCostPrice)
+            const looseUnitsValue = looseUnits > 0 ? looseUnits : 0;
+            const casesTotal = roundTo4Decimals(caseCostPrice * numValue);
+            const looseTotal = looseUnitsValue > 0 ? roundTo4Decimals(unitCostPrice * looseUnitsValue) : 0;
+            updated.lineTotalPrice = roundTo4Decimals(casesTotal + looseTotal).toFixed(4);
           } else if (numValue > 0 && unitCostPrice > 0 && unitsPerPack > 0) {
             // Calculate from unit cost
             const calculatedCaseCost = roundTo4Decimals(unitCostPrice * unitsPerPack);
-            updated.lineTotalPrice = roundTo4Decimals(calculatedCaseCost * numValue).toFixed(4);
+            const looseUnitsValue = looseUnits > 0 ? looseUnits : 0;
+            const casesTotal = roundTo4Decimals(calculatedCaseCost * numValue);
+            const looseTotal = looseUnitsValue > 0 ? roundTo4Decimals(unitCostPrice * looseUnitsValue) : 0;
+            updated.lineTotalPrice = roundTo4Decimals(casesTotal + looseTotal).toFixed(4);
             if (!updated.caseCostPrice || updated.caseCostPrice === "") {
               updated.caseCostPrice = calculatedCaseCost.toFixed(4);
             }
           }
           // Auto-calculate quantityUnits if unitsPerPack is available
           if (numValue > 0 && unitsPerPack > 0) {
-            updated.quantityUnits = String(numValue * unitsPerPack);
-          } else if (numValue === 0) {
+            const looseUnitsValue = looseUnits > 0 ? looseUnits : 0;
+            updated.quantityUnits = String((numValue * unitsPerPack) + looseUnitsValue);
+          } else if (numValue === 0 && looseUnits === 0) {
             updated.quantityUnits = "";
+            updated.lineTotalPrice = "";
+          } else if (numValue === 0 && looseUnits > 0) {
+            updated.quantityUnits = String(looseUnits);
+          }
+        }
+        
+        // When looseUnits changes: recalculate lineTotalPrice and quantityUnits
+        else if (key === "looseUnits") {
+          const casesValue = casesQuantity > 0 ? casesQuantity : 0;
+          const looseValue = numValue;
+          
+          // Calculate total quantityUnits
+          if (unitsPerPack > 0 && casesValue > 0) {
+            updated.quantityUnits = String((casesValue * unitsPerPack) + looseValue);
+          } else if (looseValue > 0) {
+            updated.quantityUnits = String(looseValue);
+          } else {
+            updated.quantityUnits = String(casesValue * unitsPerPack);
+          }
+          
+          // Calculate lineTotalPrice
+          if (looseValue > 0 && unitCostPrice > 0) {
+            const looseTotal = roundTo4Decimals(unitCostPrice * looseValue);
+            const casesTotal = casesValue > 0 && caseCostPrice > 0 
+              ? roundTo4Decimals(caseCostPrice * casesValue)
+              : 0;
+            updated.lineTotalPrice = roundTo4Decimals(casesTotal + looseTotal).toFixed(4);
+          } else if (looseValue === 0 && casesValue > 0 && caseCostPrice > 0) {
+            updated.lineTotalPrice = roundTo4Decimals(caseCostPrice * casesValue).toFixed(4);
+          } else if (looseValue === 0 && casesValue === 0) {
             updated.lineTotalPrice = "";
           }
         }
@@ -317,9 +358,13 @@ export function PurchasesPage() {
           } else if (numValue > 0 && caseCostPrice > 0) {
             updated.unitCostPrice = roundTo4Decimals(caseCostPrice / numValue).toFixed(4);
           }
-          // Auto-calculate quantityUnits if casesQuantity is available
-          if (numValue > 0 && casesQuantity > 0) {
-            updated.quantityUnits = String(casesQuantity * numValue);
+          // Auto-calculate quantityUnits: (casesQuantity * unitsPerPack) + looseUnits
+          const casesValue = casesQuantity > 0 ? casesQuantity : 0;
+          const looseValue = looseUnits > 0 ? looseUnits : 0;
+          if (numValue > 0 && casesValue > 0) {
+            updated.quantityUnits = String((casesValue * numValue) + looseValue);
+          } else if (looseValue > 0) {
+            updated.quantityUnits = String(looseValue);
           }
         }
         
@@ -330,16 +375,22 @@ export function PurchasesPage() {
 
   const handleManualSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    setIsSubmitting(true);
+    
     const payloadLines = manualLines
       .filter((line) => line.sku || line.name || line.brandNumber)
       .map((line) => {
         const unitsPerPack = line.unitsPerPack !== "" ? Number(line.unitsPerPack) : undefined;
         const casesQuantity = line.casesQuantity !== "" ? Number(line.casesQuantity) : undefined;
+        const looseUnits = line.looseUnits !== "" ? Number(line.looseUnits) : undefined;
+        // Calculate quantityUnits: (cases * unitsPerPack) + looseUnits
         const quantityUnits = line.quantityUnits !== ""
           ? Number(line.quantityUnits)
           : unitsPerPack !== undefined && casesQuantity !== undefined
-            ? unitsPerPack * casesQuantity
-            : 0;
+            ? (unitsPerPack * casesQuantity) + (looseUnits ?? 0)
+            : looseUnits !== undefined
+              ? looseUnits
+              : 0;
         const unitCostPrice = roundTo4Decimals(Number(line.unitCostPrice || line.mrpPrice || 0));
         const caseCostPrice = line.caseCostPrice !== "" ? roundTo4Decimals(Number(line.caseCostPrice)) : undefined;
         const lineTotalPrice = line.lineTotalPrice !== "" ? roundTo4Decimals(Number(line.lineTotalPrice)) : undefined;
@@ -354,6 +405,7 @@ export function PurchasesPage() {
           packSizeLabel: line.packSizeLabel || undefined,
           unitsPerPack,
           casesQuantity,
+          looseUnits, // Include looseUnits in payload (backend will use it to calculate but not store)
           quantityUnits,
           mrpPrice: Number(line.mrpPrice || 0),
           unitCostPrice,
@@ -364,6 +416,7 @@ export function PurchasesPage() {
 
     if (payloadLines.length === 0) {
       toast.error("Add at least one line item");
+      setIsSubmitting(false);
       return;
     }
 
@@ -376,23 +429,25 @@ export function PurchasesPage() {
       // Even if brandNumber+sizeCode is provided, if no match is found, name is needed
       if (!line.itemId && !line.name) {
         toast.error(`Line ${lineNum}: Brand Name is required to create new items`);
+        setIsSubmitting(false);
         return;
       }
 
       // Quantity must be positive
       if (!line.quantityUnits || line.quantityUnits <= 0) {
         toast.error(`Line ${lineNum}: Quantity must be greater than 0`);
+        setIsSubmitting(false);
         return;
       }
 
       // MRP is required
       if (line.mrpPrice === undefined || line.mrpPrice < 0) {
         toast.error(`Line ${lineNum}: MRP price is required`);
+        setIsSubmitting(false);
         return;
       }
     }
 
-    setIsSubmitting(true);
     try {
       if (editingPurchase) {
         await api.put(`/purchases/${editingPurchase.id}`, {
@@ -542,6 +597,17 @@ export function PurchasesPage() {
             line.casesQuantity !== null && line.casesQuantity !== undefined
               ? String(line.casesQuantity)
               : "",
+          looseUnits: (() => {
+            // Calculate looseUnits from existing data: quantityUnits - (casesQuantity * unitsPerCase)
+            const qtyUnits = line.quantityUnits ?? 0;
+            const casesQty = line.casesQuantity ?? 0;
+            const unitsPerCase = line.unitsPerCase ?? line.item.unitsPerPack ?? 0;
+            if (casesQty > 0 && unitsPerCase > 0) {
+              const loose = qtyUnits - (casesQty * unitsPerCase);
+              return loose > 0 ? String(loose) : "";
+            }
+            return "";
+          })(),
           quantityUnits: String(line.quantityUnits ?? 0),
           mrpPrice:
             line.mrpPriceAtPurchase !== null && line.mrpPriceAtPurchase !== undefined
@@ -842,8 +908,8 @@ export function PurchasesPage() {
                     </div>
                   </div>
 
-                  {/* Row 3: Units/case / Cases / Total units */}
-                  <div className="grid gap-3 md:grid-cols-3">
+                  {/* Row 3: Units/case / Cases / Loose Units / Total units */}
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                     <div>
                       <label className="text-xs text-slate-500">Units/case</label>
                       <input
@@ -857,7 +923,7 @@ export function PurchasesPage() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-slate-500 font-medium">Qty (Cases) *</label>
+                      <label className="text-xs text-slate-500 font-medium">Qty (Cases)</label>
                       <input
                         type="number"
                         step="1"
@@ -869,12 +935,24 @@ export function PurchasesPage() {
                       />
                     </div>
                     <div>
+                      <label className="text-xs text-slate-500">Loose Units</label>
+                      <input
+                        type="number"
+                        step="1"
+                        min={0}
+                        placeholder="e.g. 10 bottles"
+                        value={line.looseUnits}
+                        onChange={(e) => handleManualChange(line.id, "looseUnits", e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2"
+                      />
+                    </div>
+                    <div>
                       <label className="text-xs text-slate-500">Total units</label>
                       <input
                         type="number"
                         step="1"
                         min={0}
-                        placeholder="Auto: cases × units"
+                        placeholder="Auto: (cases × units) + loose"
                         value={line.quantityUnits}
                         onChange={(e) => handleManualChange(line.id, "quantityUnits", e.target.value)}
                         className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 bg-slate-50"
@@ -974,7 +1052,11 @@ export function PurchasesPage() {
         <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-base font-semibold text-slate-900">Import CSV / XLSX</p>
           <p className="text-sm text-slate-500">
-            Required: Brand No, Brand Name, Product Type, Size Code, Pack/Qty, Issue Type, Qty (Cases), Issue Price
+            Required: Brand No, Brand Name, Product Type, Size Code, Pack/Qty, Issue Type, Issue Price
+            <br />
+            Required (at least one): Qty (Cases) OR Loose Units
+            <br />
+            Optional: Loose Units column (if you have both cases and loose bottles)
           </p>
           <p className="mt-1 text-xs text-slate-400">
             Issue Price = cost per case • Optional: MRP column (if not provided, existing MRP is kept)
@@ -1117,7 +1199,8 @@ export function PurchasesPage() {
                         <th className="px-3 py-2">Size</th>
                         <th className="px-3 py-2">Pack</th>
                         <th className="px-3 py-2 text-right">Cases</th>
-                        <th className="px-3 py-2 text-right">Units</th>
+                        <th className="px-3 py-2 text-right">Loose</th>
+                        <th className="px-3 py-2 text-right">Total Units</th>
                         <th className="px-3 py-2 text-right">Cost/case</th>
                         <th className="px-3 py-2 text-right">Line total</th>
                         <th className="px-3 py-2">Issues</th>
@@ -1151,6 +1234,7 @@ export function PurchasesPage() {
                             <p className="text-[11px] uppercase text-slate-400">{line.payload.packType ?? "—"}</p>
                           </td>
                           <td className="px-3 py-2 text-right">{formatNumber(line.payload.casesQuantity ?? 0)}</td>
+                          <td className="px-3 py-2 text-right">{formatNumber(line.payload.looseUnits ?? 0)}</td>
                           <td className="px-3 py-2 text-right">{formatNumber(line.payload.quantityUnits ?? 0)}</td>
                           <td className="px-3 py-2 text-right">
                             {line.payload.caseCostPrice ? formatCurrency(line.payload.caseCostPrice) : "—"}
@@ -1401,7 +1485,8 @@ export function PurchasesPage() {
                                     <th className="py-1">Pack/Qty</th>
                                     <th className="py-1">Issue</th>
                                     <th className="py-1 text-right">Cases</th>
-                                    <th className="py-1 text-right">Units</th>
+                                    <th className="py-1 text-right">Loose</th>
+                                    <th className="py-1 text-right">Total Units</th>
                                     <th className="py-1 text-right">Issue Price</th>
                                     <th className="py-1 text-right">Line total</th>
                                   </tr>
@@ -1413,6 +1498,13 @@ export function PurchasesPage() {
                                       line.lineTotalPrice !== null && line.lineTotalPrice !== undefined
                                         ? Number(line.lineTotalPrice)
                                         : unitCost * line.quantityUnits;
+                                    // Calculate looseUnits if not stored: quantityUnits - (casesQuantity * unitsPerCase)
+                                    const casesQty = line.casesQuantity ?? 0;
+                                    const unitsPerCase = line.unitsPerCase ?? line.item.unitsPerPack ?? 0;
+                                    const looseUnits = line.looseUnits ?? 
+                                      (casesQty > 0 && unitsPerCase > 0 
+                                        ? Math.max(0, line.quantityUnits - (casesQty * unitsPerCase))
+                                        : 0);
                                     return (
                                       <tr key={line.id}>
                                         <td className="py-1">
@@ -1434,7 +1526,10 @@ export function PurchasesPage() {
                                           {line.packType ?? "—"}
                                         </td>
                                         <td className="py-1 text-right">
-                                          {formatNumber(line.casesQuantity ?? 0)}
+                                          {formatNumber(casesQty)}
+                                        </td>
+                                        <td className="py-1 text-right">
+                                          {looseUnits > 0 ? formatNumber(looseUnits) : "—"}
                                         </td>
                                         <td className="py-1 text-right">{formatNumber(line.quantityUnits)}</td>
                                         <td className="py-1 text-right">{formatCurrency(unitCost)}</td>

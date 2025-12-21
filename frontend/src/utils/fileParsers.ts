@@ -175,8 +175,16 @@ export async function parsePurchaseUpload(file: File): Promise<ParsedLine<Purcha
       normalized.cases ?? 
       normalized.qty,
     );
-    if (!casesQuantity) {
-      issues.push("Missing cases quantity");
+    // Optional: loose units (individual bottles not in complete cases)
+    const looseUnits = numberOrZero(
+      normalized.loose_units ??
+      normalized.loose_bottles ??
+      normalized.individual_units ??
+      normalized.bottles ??
+      0,
+    );
+    if (!casesQuantity && !looseUnits) {
+      issues.push("Missing cases quantity or loose units");
     }
     const issuePrice = numberOrZero(
       normalized.issue_price ?? normalized.case_price ?? normalized.cost_price ?? normalized.price,
@@ -184,21 +192,29 @@ export async function parsePurchaseUpload(file: File): Promise<ParsedLine<Purcha
     if (!issuePrice) {
       issues.push("Missing issue price");
     }
-    const totalPrice = numberOrZero(
-      normalized.total_price ?? normalized.line_total ?? normalized.amount ?? issuePrice * casesQuantity,
-    );
     const unitsPerPack = packInfo.unitsPerPack ?? numberOrZero(normalized.units_per_pack);
     if (!unitsPerPack) {
       issues.push("Pack quantity is required");
     }
-    const quantityUnits = unitsPerPack * casesQuantity;
-    if (!quantityUnits) {
-      issues.push("Computed units missing");
-    }
+    // Calculate unit cost price from case price
     const unitCostPrice =
       unitsPerPack > 0 ? Number((issuePrice / unitsPerPack).toFixed(4)) : numberOrZero(normalized.unit_cost_price);
     if (!unitCostPrice) {
       issues.push("Derived cost per unit missing");
+    }
+    // Calculate total price: if provided use it, otherwise calculate from cases + loose units
+    const calculatedTotalPrice = casesQuantity > 0 
+      ? issuePrice * casesQuantity + (looseUnits > 0 ? unitCostPrice * looseUnits : 0)
+      : looseUnits > 0
+        ? unitCostPrice * looseUnits  // If only loose units, calculate from unit price
+        : 0;
+    const totalPrice = numberOrZero(
+      normalized.total_price ?? normalized.line_total ?? normalized.amount ?? calculatedTotalPrice,
+    );
+    // Calculate total units: (cases * unitsPerPack) + looseUnits
+    const quantityUnits = (unitsPerPack * casesQuantity) + looseUnits;
+    if (!quantityUnits) {
+      issues.push("Computed units missing");
     }
     // MRP is optional - if not provided, backend will use existing item's MRP or default to cost
     const mrpRaw = numberOrZero(normalized.mrp_price ?? normalized.mrp ?? normalized.mrp_per_unit);
@@ -220,7 +236,8 @@ export async function parsePurchaseUpload(file: File): Promise<ParsedLine<Purcha
       packType: packType || undefined,
       packSizeLabel: packInfo.label,
       unitsPerPack,
-      casesQuantity,
+      casesQuantity: casesQuantity > 0 ? casesQuantity : undefined,
+      looseUnits: looseUnits > 0 ? looseUnits : undefined, // Include looseUnits if provided
       category: productType || undefined,
       volumeMl: packInfo.volumeMl,
       mrpPrice: mrp,

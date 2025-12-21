@@ -78,9 +78,9 @@ model PurchaseLineItem {
   purchaseId         Int
   item               Item      @relation(fields: [itemId], references: [id])
   itemId             Int
-  quantityUnits      Int
-  casesQuantity      Int?
-  unitsPerCase       Int?
+  quantityUnits      Int                    // Total units = (casesQuantity * unitsPerCase) + looseUnits (calculated)
+  casesQuantity      Int?                   // Number of complete cases
+  unitsPerCase       Int?                   // Units per case
   packType           String?
   packSizeLabel      String?
   brandNumber        String?

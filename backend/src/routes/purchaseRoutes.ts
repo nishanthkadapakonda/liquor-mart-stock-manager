@@ -28,6 +28,7 @@ const purchaseLineSchema = z.object({
   lineTotalPrice: z.number().nonnegative().optional(),
   quantityUnits: z.number().int().positive(),
   casesQuantity: z.number().int().nonnegative().optional(),
+  looseUnits: z.number().int().nonnegative().optional(),  // Frontend-only: helps calculate quantityUnits
   reorderLevel: z.number().int().nonnegative().optional(),
   isActive: z.boolean().optional(),
 });
@@ -77,6 +78,7 @@ function normalizeLineItems(items: z.infer<typeof purchaseSchema>["lineItems"]):
       ...(category ? { category } : {}),
       ...(volumeMl !== undefined ? { volumeMl } : {}),
       ...(typeof casesQuantity === "number" ? { casesQuantity } : {}),
+      ...(typeof looseUnits === "number" ? { looseUnits } : {}),
       ...(reorderLevel !== undefined ? { reorderLevel } : {}),
       ...(typeof isActive === "boolean" ? { isActive } : {}),
     };
