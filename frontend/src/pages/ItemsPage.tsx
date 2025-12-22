@@ -771,32 +771,39 @@ export function ItemsPage() {
     `);
     printWindow.document.close();
     
-    // Wait for the document to be fully loaded before printing
-    printWindow.onload = () => {
+    // Flag to ensure print is only called once
+    let printTriggered = false;
+    const triggerPrint = () => {
+      if (printTriggered) return;
+      printTriggered = true;
+      
       printWindow.focus();
-      setTimeout(() => {
-        printWindow.print();
-        // Close the window after a delay, even if user cancels print
-        setTimeout(() => {
-          if (printWindow && !printWindow.closed) {
-            printWindow.close();
-          }
-        }, 1000);
-      }, 100);
+      printWindow.print();
+      
+      // Close the window immediately after print dialog appears
+      // The window will close when user prints or cancels
+      if (printWindow && !printWindow.closed) {
+        printWindow.close();
+      }
     };
     
-    // Fallback: if onload doesn't fire, trigger print after a short delay
-    setTimeout(() => {
-      if (printWindow && !printWindow.closed && printWindow.document.readyState === 'complete') {
-        printWindow.focus();
-        printWindow.print();
-        setTimeout(() => {
-          if (printWindow && !printWindow.closed) {
-            printWindow.close();
-          }
-        }, 1000);
-      }
-    }, 500);
+    // Wait for the document to be fully loaded before printing
+    if (printWindow.document.readyState === 'complete') {
+      // Document already loaded
+      setTimeout(triggerPrint, 100);
+    } else {
+      // Wait for document to load
+      printWindow.onload = () => {
+        setTimeout(triggerPrint, 100);
+      };
+      
+      // Fallback: if onload doesn't fire, trigger print after a delay
+      setTimeout(() => {
+        if (!printTriggered && printWindow && !printWindow.closed) {
+          triggerPrint();
+        }
+      }, 500);
+    }
   };
 
   return (
