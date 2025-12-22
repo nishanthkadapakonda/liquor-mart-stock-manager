@@ -341,43 +341,31 @@ export function ItemsPage() {
     try {
       const headers = [
         "SKU",
-        "Brand Number",
+        "Brand No",
         "Item Name",
-        "Brand",
-        "Product Type",
-        "Size Code",
-        "Pack Type",
-        "Pack Size Label",
-        "Units Per Pack",
-        "Category",
-        "Volume (ml)",
+        "Type",
+        "Size",
+        "Pack",
+        "Units/Case",
         "MRP",
-        "Purchase Cost Price",
-        "Weighted Avg Cost Price",
-        "Current Stock Units",
-        "Total Purchased Quantity",
-        "Reorder Level",
-        "Is Active",
+        "Avg Cost",
+        "Stock",
+        "Total Purchased",
+        "Reorder",
       ];
       const rows = visibleItems.map((item) => [
         item.sku,
         item.brandNumber ?? "",
         item.name,
-        item.brand ?? "",
         item.productType ?? "",
         item.sizeCode ?? "",
-        item.packType ?? "",
         item.packSizeLabel ?? "",
         item.unitsPerPack ?? "",
-        item.category ?? "",
-        item.volumeMl ?? "",
         Number(item.mrpPrice ?? 0),
-        item.purchaseCostPrice ? Number(item.purchaseCostPrice) : "",
         item.weightedAvgCostPrice ? Number(item.weightedAvgCostPrice) : "",
         item.currentStockUnits,
         item.totalPurchasedQuantity ?? 0,
         item.reorderLevel ?? "",
-        item.isActive ? "Yes" : "No",
       ]);
       // Security: Sanitize data before creating Excel file
       const sanitizedRows = rows.map((row) =>
@@ -387,6 +375,24 @@ export function ItemsPage() {
         })
       );
       const worksheet = XLSXUtils.aoa_to_sheet([headers, ...sanitizedRows]);
+      
+      // Set column widths for compact layout
+      const colWidths = [
+        { wch: 15 }, // SKU
+        { wch: 10 }, // Brand No
+        { wch: 35 }, // Item Name
+        { wch: 12 }, // Type
+        { wch: 8 },  // Size
+        { wch: 15 }, // Pack
+        { wch: 10 }, // Units/Case
+        { wch: 12 }, // MRP
+        { wch: 12 }, // Avg Cost
+        { wch: 8 },  // Stock
+        { wch: 12 }, // Total Purchased
+        { wch: 8 },  // Reorder
+      ];
+      worksheet['!cols'] = colWidths;
+      
       const workbook = XLSXUtils.book_new();
       XLSXUtils.book_append_sheet(workbook, worksheet, "Items");
       writeXlsxFile(workbook, `items-${dayjs().format("YYYYMMDD-HHmm")}.xlsx`);
@@ -409,7 +415,7 @@ export function ItemsPage() {
       return;
     }
     
-    // Clone the table and remove the Actions column
+    // Clone the table and modify for print
     const tableClone = tableRef.current.cloneNode(true) as HTMLTableElement;
     const actionsColumnIndex = canEdit ? 7 : 6; // Actions is the last column
     
@@ -420,17 +426,243 @@ export function ItemsPage() {
       if (actionsHeader) {
         actionsHeader.remove();
       }
+      
+      // Remove checkbox column if it exists
+      if (canEdit && headerRow.children.length > 0) {
+        const checkboxHeader = headerRow.children[0];
+        if (checkboxHeader && checkboxHeader.querySelector('input[type="checkbox"]')) {
+          checkboxHeader.remove();
+        }
+      }
+      
+      // Add row number header as first column
+      const rowNumHeader = document.createElement('th');
+      rowNumHeader.textContent = '#';
+      headerRow.insertBefore(rowNumHeader, headerRow.firstChild);
+      
+      // Update headers: Split Type / Size, Split MRP / Avg Cost into separate columns
+      const headers = Array.from(headerRow.children);
+      
+      // Split Type / Size into three columns: Type, Size, Pack Type
+      const typeSizeHeader = headers.find(th => th.textContent?.includes("Type / Size"));
+      if (typeSizeHeader) {
+        // Insert Type header before the Type/Size header
+        const typeHeader = typeSizeHeader.cloneNode(true) as HTMLElement;
+        typeHeader.textContent = "Type";
+        typeSizeHeader.parentNode?.insertBefore(typeHeader, typeSizeHeader);
+        // Insert Pack Type header after Type
+        const packTypeHeader = typeSizeHeader.cloneNode(true) as HTMLElement;
+        packTypeHeader.textContent = "Pack Type";
+        typeSizeHeader.parentNode?.insertBefore(packTypeHeader, typeSizeHeader);
+        // Rename existing to Size
+        typeSizeHeader.textContent = "Size";
+      }
+      
+      // Split MRP / Avg Cost into two columns (Purchase price before tax first, then MRP)
+      const mrpAvgCostHeader = headers.find(th => th.textContent?.includes("MRP / Avg Cost"));
+      if (mrpAvgCostHeader) {
+        // Rename existing to Purchase price before tax (this will be first)
+        mrpAvgCostHeader.textContent = "Purchase price before tax";
+        // Insert MRP header after the Purchase price before tax header
+        const mrpHeader = mrpAvgCostHeader.cloneNode(true) as HTMLElement;
+        mrpHeader.textContent = "MRP";
+        mrpAvgCostHeader.parentNode?.insertBefore(mrpHeader, mrpAvgCostHeader.nextSibling);
+      }
     }
     
-    // Remove Actions cells from all rows
+    // Modify rows for print
     const rows = tableClone.querySelectorAll("tbody tr");
-    rows.forEach((row) => {
+    rows.forEach((row, index) => {
+      // Remove Actions cell
       const actionsCell = row.children[actionsColumnIndex];
       if (actionsCell) {
         actionsCell.remove();
       }
+      
+      // Remove checkbox cell if it exists
+      if (canEdit && row.children.length > 0) {
+        const checkboxCell = row.children[0];
+        if (checkboxCell && checkboxCell.querySelector('input[type="checkbox"]')) {
+          checkboxCell.remove();
+        }
+      }
+      
+      // Add row number as first cell
+      const rowNumCell = document.createElement('td');
+      rowNumCell.textContent = String(index + 1);
+      row.insertBefore(rowNumCell, row.firstChild);
+      
+      const cells = Array.from(row.children);
+      // After adding row number and removing checkbox, indices are: 0=row#, 1=Brand/Name, 2=Type/Size, 3=Pack/Qty, etc.
+      
+      // Remove SKU from Brand No / Name column (index 1 after row number)
+      const brandNameCell = cells[1];
+      if (brandNameCell) {
+        const skuElement = brandNameCell.querySelector('p.text-xs, .text-xs');
+        if (skuElement) {
+          skuElement.remove();
+        }
+      }
+      
+      // Split Type / Size into three columns: Type, Size, Pack Type (index 2 after row number)
+      const typeSizeCell = cells[2];
+      if (typeSizeCell) {
+        const cellText = typeSizeCell.innerHTML;
+        const typeMatch = cellText.match(/<p>([^<]+)<\/p>/);
+        const sizeMatch = cellText.match(/Size:\s*([^<•]+)/);
+        const packTypeMatch = cellText.match(/•\s*([^<]+)/);
+        
+        // Create Type cell
+        const typeCell = typeSizeCell.cloneNode(true) as HTMLElement;
+        typeCell.innerHTML = typeMatch ? `<p>${typeMatch[1]}</p>` : '<p>—</p>';
+        typeSizeCell.parentNode?.insertBefore(typeCell, typeSizeCell);
+        
+        // Create Pack Type cell (insert after Type, before Size)
+        const packTypeCell = typeSizeCell.cloneNode(true) as HTMLElement;
+        const packTypeText = packTypeMatch ? packTypeMatch[1].trim() : '—';
+        packTypeCell.innerHTML = `<p>${packTypeText}</p>`;
+        typeSizeCell.parentNode?.insertBefore(packTypeCell, typeSizeCell);
+        
+        // Update Size cell (remove Type part, keep Size only - pack type is now separate)
+        const sizeText = sizeMatch ? sizeMatch[1].trim() : '—';
+        typeSizeCell.innerHTML = `<p>${sizeText}</p>`;
+      }
+      
+      // Remove QTY (units/case) from Pack/Qty column - find by content pattern
+      // After adding Pack Type column, Pack/Qty is now at index 5
+      const packQtyCell = Array.from(cells).find(cell => {
+        const text = cell.textContent || '';
+        return text.includes('/') && (text.includes('ml') || text.includes('l')) && text.includes('units');
+      }) || cells[5]; // Fallback to index 5 (was 4 before Pack Type column)
+      
+      if (packQtyCell) {
+        // Remove all elements that contain "units/case" or "units"
+        const allElements = packQtyCell.querySelectorAll('*');
+        allElements.forEach(el => {
+          const text = el.textContent || '';
+          if (text.includes('units/case') || (text.includes('units') && text.match(/\d+\s*units/))) {
+            el.remove();
+          }
+        });
+        
+        // Clean all text nodes and paragraph content
+        const allParagraphs = packQtyCell.querySelectorAll('p');
+        allParagraphs.forEach(p => {
+          if (p.textContent) {
+            let cleaned = p.textContent
+              .replace(/,\s*\d+\s*units\/case/gi, '')
+              .replace(/\d+\s*units\/case/gi, '')
+              .replace(/units\/case/gi, '')
+              .replace(/,\s*\d+\s*units/gi, '')
+              .replace(/\d+\s*units/gi, '')
+              .trim();
+            p.textContent = cleaned;
+          }
+        });
+        
+        // Final cleanup: replace entire innerHTML to remove any remaining instances
+        let finalHTML = packQtyCell.innerHTML
+          .replace(/<p[^>]*>[\s\S]*?units\/case[\s\S]*?<\/p>/gi, '')
+          .replace(/,\s*\d+\s*units\/case/gi, '')
+          .replace(/\d+\s*units\/case/gi, '')
+          .replace(/units\/case/gi, '')
+          .replace(/,\s*\d+\s*units/gi, '')
+          .replace(/\d+\s*units/gi, '');
+        packQtyCell.innerHTML = finalHTML;
+      }
+      
+      // Split MRP / Avg Cost into two columns (find dynamically)
+      const mrpAvgCostCell = Array.from(cells).find(cell => {
+        const text = cell.textContent || '';
+        return text.includes('₹') && (text.includes('Avg') || text.includes('MRP'));
+      });
+      if (mrpAvgCostCell) {
+        const cellText = mrpAvgCostCell.innerHTML;
+        const mrpMatch = cellText.match(/₹([\d,]+\.?\d*)/);
+        const avgMatch = cellText.match(/Avg:\s*₹([\d,]+\.?\d*)/);
+        
+        // Helper function to round price to 2 decimals
+        const roundTo2Decimals = (priceStr: string): string => {
+          const num = parseFloat(priceStr.replace(/,/g, ''));
+          if (isNaN(num)) return priceStr;
+          return `₹${num.toFixed(2)}`;
+        };
+        
+        // Update Avg Cost cell first (Purchase price before tax - remove "Avg:" text, rounded to 2 decimals)
+        // This will be the first column
+        if (avgMatch && avgMatch[1]) {
+          mrpAvgCostCell.innerHTML = `<p>${roundTo2Decimals(avgMatch[1])}</p>`;
+        } else {
+          mrpAvgCostCell.innerHTML = '<p>—</p>';
+        }
+        
+        // Create MRP cell after Purchase price before tax (rounded to 2 decimals)
+        const mrpCell = mrpAvgCostCell.cloneNode(true) as HTMLElement;
+        if (mrpMatch && mrpMatch[1]) {
+          mrpCell.innerHTML = `<p>${roundTo2Decimals(mrpMatch[1])}</p>`;
+        } else {
+          mrpCell.innerHTML = '<p>—</p>';
+        }
+        mrpAvgCostCell.parentNode?.insertBefore(mrpCell, mrpAvgCostCell.nextSibling);
+      }
+      
+      // Remove reorder text from Stock column - find by looking for cells with numbers and "Reorder" text
+      const stockCell = Array.from(cells).find(cell => {
+        const text = cell.textContent || '';
+        return text.includes('Reorder') || text.includes('reorder');
+      });
+      if (stockCell) {
+        // Remove all small text elements
+        const allSmallTexts = stockCell.querySelectorAll('p.text-xs, .text-xs, p.text-slate-400, .text-slate-400, p');
+        allSmallTexts.forEach(el => {
+          const text = el.textContent || '';
+          if (text.includes('Reorder') || text.includes('reorder')) {
+            el.remove();
+          }
+        });
+        // Also clean main text content
+        const mainParagraphs = stockCell.querySelectorAll('p');
+        mainParagraphs.forEach(p => {
+          if (p.textContent) {
+            p.textContent = p.textContent.replace(/,\s*Reorder:\s*\d+/gi, '').replace(/Reorder:\s*\d+/gi, '').trim();
+          }
+        });
+        // Clean innerHTML directly
+        if (stockCell.innerHTML) {
+          stockCell.innerHTML = stockCell.innerHTML.replace(/,\s*Reorder:\s*\d+/gi, '').replace(/Reorder:\s*\d+/gi, '');
+        }
+      }
+      
+      // Remove "Till date" text from Total Purchased column
+      const totalPurchasedCell = Array.from(cells).find(cell => {
+        const text = cell.textContent || '';
+        return text.includes('Till date') || text.includes('till date');
+      });
+      if (totalPurchasedCell) {
+        // Remove all small text elements
+        const allSmallTexts = totalPurchasedCell.querySelectorAll('p.text-xs, .text-xs, p.text-slate-400, .text-slate-400, p');
+        allSmallTexts.forEach(el => {
+          const text = el.textContent || '';
+          if (text.includes('Till date') || text.includes('till date')) {
+            el.remove();
+          }
+        });
+        // Also clean main text content
+        const mainParagraphs = totalPurchasedCell.querySelectorAll('p');
+        mainParagraphs.forEach(p => {
+          if (p.textContent) {
+            p.textContent = p.textContent.replace(/,\s*Till date/gi, '').replace(/Till date/gi, '').trim();
+          }
+        });
+        // Clean innerHTML directly
+        if (totalPurchasedCell.innerHTML) {
+          totalPurchasedCell.innerHTML = totalPurchasedCell.innerHTML.replace(/,\s*Till date/gi, '').replace(/Till date/gi, '');
+        }
+      }
     });
     
+    // Open document properly before writing
+    printWindow.document.open();
     printWindow.document.write(`
       <html>
         <head>
@@ -476,33 +708,53 @@ export function ItemsPage() {
             table { 
               width: 100%; 
               border-collapse: collapse; 
-              margin-top: 20px; 
+              margin-top: 10px; 
               position: relative;
               z-index: 1;
+              font-size: 10px;
             }
             th, td { 
               border: 1px solid #ddd; 
-              padding: 8px; 
+              padding: 4px 6px; 
               text-align: left; 
+              line-height: 1.2;
             }
             th { 
               background-color: #f2f2f2; 
               font-weight: bold; 
+              font-size: 9px;
+              padding: 6px;
             }
             tr:nth-child(even) { 
               background-color: #f9f9f9; 
             }
+            td p {
+              margin: 2px 0;
+              font-size: 10px;
+            }
+            td p.text-xs, td .text-xs {
+              font-size: 8px;
+              margin: 1px 0;
+            }
+            /* Increase Pack/Qty column width to fit in one line (now 6th column after adding Pack Type) */
+            th:nth-child(6), td:nth-child(6) {
+              min-width: 120px;
+              width: 120px;
+              white-space: nowrap;
+            }
             .header { 
-              margin-bottom: 20px; 
+              margin-bottom: 10px; 
               position: relative;
               z-index: 1;
             }
             .header h1 { 
-              margin: 0; 
+              margin: 0;
+              font-size: 18px;
             }
             .header p { 
-              margin: 5px 0; 
-              color: #666; 
+              margin: 3px 0; 
+              color: #666;
+              font-size: 11px;
             }
           </style>
         </head>
@@ -518,11 +770,33 @@ export function ItemsPage() {
       </html>
     `);
     printWindow.document.close();
-    printWindow.focus();
+    
+    // Wait for the document to be fully loaded before printing
+    printWindow.onload = () => {
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        // Close the window after a delay, even if user cancels print
+        setTimeout(() => {
+          if (printWindow && !printWindow.closed) {
+            printWindow.close();
+          }
+        }, 1000);
+      }, 100);
+    };
+    
+    // Fallback: if onload doesn't fire, trigger print after a short delay
     setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 250);
+      if (printWindow && !printWindow.closed && printWindow.document.readyState === 'complete') {
+        printWindow.focus();
+        printWindow.print();
+        setTimeout(() => {
+          if (printWindow && !printWindow.closed) {
+            printWindow.close();
+          }
+        }, 1000);
+      }
+    }, 500);
   };
 
   return (
